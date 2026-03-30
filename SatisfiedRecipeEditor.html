@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Satisfactory Recipe Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --canvas-bg: #1f2937;
+            --card-bg: #111827;
+            --border-color: #374151;
+            --text-light: #d1d5db;
+            --text-dark: #9ca3af;
+            --accent-indigo: #6366f1;
+            --accent-green: #22c55e;
+            --accent-orange: #f97316;
+            --accent-red: #ef4444;
+            --accent-cyan: #22d3ee;
+            --accent-purple: #a855f7;
+            --accent-yellow: #f59e0b;
+        }
+        body { font-family: 'Roboto', 'Inter', sans-serif; background-color: var(--canvas-bg); color: var(--text-light); }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+        .tree-item { cursor: pointer; user-select: none; }
+        .tree-item:hover { background-color: rgba(255, 255, 255, 0.05); }
+        .tree-item.selected { background-color: rgba(99, 102, 241, 0.2); border-left: 3px solid var(--accent-indigo); }
+        
+        .dict-row input { background-color: #374151; border: 1px solid #4b5563; color: white; padding: 0.25rem 0.5rem; border-radius: 0.25rem; font-size: 0.875rem; }
+        .dict-row input:focus { outline: none; border-color: var(--accent-indigo); }
+
+        .input-base { background-color: var(--card-bg); border: 1px solid var(--border-color); color: white; border-radius: 0.375rem; padding: 0.5rem; width: 100%; font-size: 0.875rem; }
+        .input-base:focus { outline: none; border-color: var(--accent-cyan); box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.5); }
+        
+        /* Collapsible Menu Styles */
+        .collapsible-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .collapsible-header .chevron {
+            transition: transform 0.3s ease-out;
+        }
+        .collapsible-header.active .chevron {
+            transform: rotate(90deg);
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+    <!-- Header -->
+    <header class="bg-gray-800 p-3 shadow-lg z-30 border-b border-gray-700 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <svg class="w-6 h-6 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            <h1 class="text-xl font-bold text-white">Satisfied Recipe Editor</h1>
+        </div>
+        <div class="flex gap-2">
+            <button id="btn-import" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1.5 px-4 text-sm rounded shadow transition-colors flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                Import recipes.js
+            </button>
+            <input type="file" id="file-import" class="hidden" accept=".js,.json,text/javascript">
+            <button id="btn-export" class="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-4 text-sm rounded shadow transition-colors flex items-center gap-2">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Export recipes.js
+            </button>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Sidebar Tree -->
+        <aside class="w-80 bg-gray-800 border-r border-gray-700 flex flex-col flex-shrink-0">
+            <div class="p-3 border-b border-gray-700 space-y-3 bg-gray-900/50">
+                <div class="flex justify-between items-center">
+                    <h2 class="font-bold text-sm text-gray-300 uppercase tracking-wider">Database</h2>
+                    <button id="btn-add-building" class="text-xs bg-gray-700 hover:bg-gray-600 text-white px-2 py-1 rounded transition-colors" title="Add New Building">+ Building</button>
+                </div>
+                <input type="search" id="recipe-filter" placeholder="Filter recipes..." class="w-full bg-gray-700 border border-gray-600 rounded-md p-2 text-sm focus:ring-indigo-500 focus:border-indigo-500 text-white">
+                <button id="collapse-all-btn" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-1.5 px-3 text-xs rounded transition-colors flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 11l7-7 7 7M5 19l7-7 7 7" /></svg>
+                    <span>Collapse All</span>
+                </button>
+            </div>
+            <div id="tree-container" class="flex-1 overflow-y-auto py-2">
+                <!-- Tree populated by JS -->
+                <div class="text-center text-gray-500 text-sm mt-10">Import a file to begin or start from scratch.</div>
+            </div>
+        </aside>
+
+        <!-- Editor Area -->
+        <main class="flex-1 bg-gray-900 overflow-y-auto p-6" id="editor-container">
+            <div class="h-full flex items-center justify-center text-gray-500">
+                <div class="text-center">
+                    <svg class="w-16 h-16 mx-auto mb-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    <p class="text-lg">Select a building or recipe to edit</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
+
+    <!-- Add Building Modal -->
+    <div id="add-building-modal" class="hidden fixed inset-0 bg-black/70 z-50 flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-gray-800 rounded-lg p-6 w-96 shadow-2xl border border-gray-700">
+            <h3 class="text-xl font-bold text-white mb-4">Add New Building</h3>
+            
+            <label class="block text-sm font-medium text-gray-400 mb-1">Select Preset</label>
+            <select id="preset-building-select" class="input-base mb-4">
+                <option value="">-- Custom Building --</option>
+            </select>
+            
+            <label class="block text-sm font-medium text-gray-400 mb-1">Or Enter Custom Name</label>
+            <input type="text" id="custom-building-input" class="input-base mb-6" placeholder="Building Name">
+            
+            <div class="flex justify-end gap-3">
+                <button id="cancel-add-building" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded text-white text-sm transition-colors">Cancel</button>
+                <button id="confirm-add-building" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-white font-bold text-sm shadow transition-colors">Add Building</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STANDARD_BUILDINGS = [
+            "Constructor", "Smelter", "Foundry", "Assembler", "Manufacturer", "Refinery", 
+            "Packager", "Blender", "Particle Accelerator", "Converter", "Quantum Encoder",
+            "Miner Mk.1", "Miner Mk.2", "Miner Mk.3", "Water Extractor", "Oil Extractor", 
+            "Resource Well Extractor", "Biomass Burner", "Coal Generator", "Fuel Generator", 
+            "Geothermal Generator", "Nuclear Power Plant", "Alien Power Augmenter"
+        ];
+
+        // --- Core State ---
+        let appData = {
+            buildings: [],
+            recipes: {}
+        };
+        let currentSelection = null; // { type: 'building'|'recipe', buildingName: str, recipeIndex: num }
+        let expandedBuildings = new Set();
+
+        // --- DOM Elements ---
+        const dom = {
+            btnImport: document.getElementById('btn-import'),
+            fileImport: document.getElementById('file-import'),
+            btnExport: document.getElementById('btn-export'),
+            btnAddBuilding: document.getElementById('btn-add-building'),
+            treeContainer: document.getElementById('tree-container'),
+            editorContainer: document.getElementById('editor-container'),
+            toastContainer: document.getElementById('toast-container'),
+            filterInput: document.getElementById('recipe-filter'),
+            btnCollapseAll: document.getElementById('collapse-all-btn'),
+            
+            addBuildingModal: document.getElementById('add-building-modal'),
+            presetSelect: document.getElementById('preset-building-select'),
+            customInput: document.getElementById('custom-building-input'),
+            cancelAddBuilding: document.getElementById('cancel-add-building'),
+            confirmAddBuilding: document.getElementById('confirm-add-building')
+        };
+
+        // Populate preset select
+        STANDARD_BUILDINGS.forEach(b => {
+            const opt = document.createElement('option');
+            opt.value = b;
+            opt.textContent = b;
+            dom.presetSelect.appendChild(opt);
+        });
+
+        // --- Event Listeners ---
+        dom.btnImport.addEventListener('click', () => dom.fileImport.click());
+        dom.fileImport.addEventListener('change', handleImport);
+        dom.btnExport.addEventListener('click', handleExport);
+        
+        dom.filterInput.addEventListener('input', handleFilter);
+        dom.btnCollapseAll.addEventListener('click', () => {
+            expandedBuildings.clear();
+            dom.filterInput.value = '';
+            renderTree();
+        });
+
+        // Add Building Modal Handlers
+        dom.presetSelect.addEventListener('change', () => {
+            if (dom.presetSelect.value) dom.customInput.value = dom.presetSelect.value;
+        });
+
+        dom.btnAddBuilding.addEventListener('click', () => {
+            dom.addBuildingModal.classList.remove('hidden');
+            dom.customInput.value = '';
+            dom.presetSelect.value = '';
+        });
+
+        dom.cancelAddBuilding.addEventListener('click', () => {
+            dom.addBuildingModal.classList.add('hidden');
+        });
+
+        dom.confirmAddBuilding.addEventListener('click', () => {
+            const newName = dom.customInput.value.trim();
+            if (newName && !appData.buildings.find(b => b.name === newName)) {
+                appData.buildings.push({ name: newName, power: 0, category: 'Production', cost: {} });
+                appData.recipes[newName] = [];
+                dom.addBuildingModal.classList.add('hidden');
+                
+                expandedBuildings.add(newName);
+                renderTree();
+                selectItem('building', newName);
+            } else if (newName) {
+                showToast("Building already exists!", "error");
+            }
+        });
+
+        // --- Logic: Data Import/Export ---
+        async function handleImport(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                let parsedData;
+                
+                try {
+                    parsedData = JSON.parse(text);
+                } catch (parseErr) {
+                    const jsonLike = text.replace(/[\s\S]*?export\s+(?:const|let|var)\s+\w+\s*=\s*/, '').replace(/;?\s*$/, '');
+                    parsedData = new Function(`return (${jsonLike})`)();
+                }
+                
+                if (parsedData && parsedData.buildings && parsedData.recipes) {
+                    appData = parsedData;
+                    appData.buildings.forEach(b => {
+                        if (!appData.recipes[b.name]) appData.recipes[b.name] = [];
+                    });
+                    currentSelection = null;
+                    expandedBuildings.clear();
+                    dom.filterInput.value = '';
+                    renderTree();
+                    dom.editorContainer.innerHTML = '<div class="h-full flex items-center justify-center text-gray-500"><p class="text-lg">File imported successfully. Select an item to edit.</p></div>';
+                    showToast("recipes.js imported successfully!", "success");
+                } else {
+                    throw new Error("Invalid data structure");
+                }
+            } catch (err) {
+                console.error(err);
+                showToast("Failed to parse file. Make sure it's the correct recipes.js format.", "error");
+            }
+            dom.fileImport.value = '';
+        }
+
+        function handleExport() {
+            if (appData.buildings.length === 0) {
+                showToast("No data to export", "error");
+                return;
+            }
+            
+            // Custom stringifier to match the original compact recipes.js format
+            const escapeStr = (str) => str.replace(/'/g, "\\'");
+            
+            const formatDict = (dict) => {
+                const entries = Object.entries(dict).map(([k, v]) => `'${escapeStr(k)}': ${v}`);
+                return `{${entries.join(', ')}}`;
+            };
+
+            let fileContent = 'export const recipeData = {\n';
+            
+            // 1. Format Buildings
+            fileContent += '  buildings: [\n';
+            const buildingLines = appData.buildings.map(b => {
+                return `    { name: '${escapeStr(b.name)}', power: ${b.power}, category: '${escapeStr(b.category)}', cost: ${formatDict(b.cost)} }`;
+            });
+            fileContent += buildingLines.join(',\n');
+            fileContent += '\n  ],\n';
+
+            // 2. Format Recipes
+            fileContent += '  recipes: {\n';
+            const recipeGroups = [];
+            for (const [bName, recipes] of Object.entries(appData.recipes)) {
+                let groupOut = `    '${escapeStr(bName)}': [\n`;
+                const rLines = recipes.map(r => {
+                    let rStr = `      {name: '${escapeStr(r.name)}', inputs: ${formatDict(r.inputs)}, outputs: ${formatDict(r.outputs)}`;
+                    if (r.isAlternate) rStr += `, isAlternate: true`;
+                    rStr += `}`;
+                    return rStr;
+                });
+                groupOut += rLines.join(',\n');
+                groupOut += '\n    ]';
+                recipeGroups.push(groupOut);
+            }
+            fileContent += recipeGroups.join(',\n');
+            fileContent += '\n  }\n};\n';
+            
+            const blob = new Blob([fileContent], { type: "text/javascript;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "recipes.js";
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast("recipes.js exported!", "success");
+        }
+
+        function showToast(message, type = "info") {
+            const toast = document.createElement('div');
+            toast.className = `px-4 py-2 rounded shadow-lg text-white text-sm transform transition-all duration-300 translate-y-full opacity-0 ${type === 'error' ? 'bg-red-600' : 'bg-gray-700 border border-gray-600'}`;
+            toast.innerHTML = `<div class="flex items-center gap-2">
+                ${type === 'success' ? '<span class="text-green-400">✓</span>' : type === 'error' ? '<span class="text-red-400">⚠</span>' : ''}
+                ${message}
+            </div>`;
+            dom.toastContainer.appendChild(toast);
+            
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-full', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('translate-y-full', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // --- Logic: UI Rendering ---
+        function renderTree() {
+            dom.treeContainer.innerHTML = '';
+            
+            appData.buildings.sort((a,b) => a.name.localeCompare(b.name)).forEach(building => {
+                const bName = building.name;
+                const recipes = appData.recipes[bName] || [];
+                const isExpanded = expandedBuildings.has(bName);
+                
+                const bNode = document.createElement('div');
+                bNode.dataset.buildingName = bName.toLowerCase();
+                bNode.dataset.exactName = bName;
+                bNode.className = 'building-section';
+                
+                // Building Header
+                const bHeader = document.createElement('div');
+                const chevronSVG = `<svg class="chevron w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>`;
+                
+                bHeader.className = `collapsible-header tree-item pl-3 pr-3 py-2 flex justify-between items-center text-sm font-bold text-gray-200 ${isExpanded ? 'active' : ''}`;
+                bHeader.innerHTML = `
+                    <div class="flex items-center gap-2 pointer-events-none">
+                        ${chevronSVG}
+                        ${bName}
+                    </div>
+                    <span class="text-xs bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded pointer-events-none">${recipes.length}</span>
+                `;
+                
+                const content = document.createElement('div');
+                content.className = 'collapsible-content';
+
+                bHeader.onclick = () => {
+                    selectItem('building', bName);
+                    // Toggle expansion logic smoothly without re-rendering whole tree
+                    if (expandedBuildings.has(bName)) {
+                        expandedBuildings.delete(bName);
+                        bHeader.classList.remove('active');
+                        content.style.maxHeight = null;
+                    } else {
+                        expandedBuildings.add(bName);
+                        bHeader.classList.add('active');
+                        content.style.maxHeight = content.scrollHeight + "px";
+                    }
+                };
+                bNode.appendChild(bHeader);
+
+                // Recipe List container
+                const rList = document.createElement('div');
+                rList.className = 'flex flex-col mb-1 border-b border-gray-700/50 pb-1';
+                
+                recipes.forEach((recipe, idx) => {
+                    const rNode = document.createElement('div');
+                    rNode.className = `recipe-node tree-item pl-10 pr-3 py-1.5 flex items-center gap-2 text-sm text-gray-400`;
+                    rNode.dataset.searchTerms = recipe.name.toLowerCase();
+                    rNode.innerHTML = `
+                        <svg class="w-3 h-3 ${recipe.isAlternate ? 'text-yellow-500' : 'text-gray-500'}" fill="currentColor" viewBox="0 0 20 20"><path d="M10 3.5a1.5 1.5 0 01.936 2.65l-3.232 3.232a1.5 1.5 0 01-2.65-1.936L8.286 4.214A1.5 1.5 0 0110 3.5z"></path></svg>
+                        <span class="truncate">${recipe.name}</span>
+                    `;
+                    rNode.onclick = () => selectItem('recipe', bName, idx);
+                    rList.appendChild(rNode);
+                });
+
+                // Add Recipe Button for this building
+                const addRecipeBtn = document.createElement('div');
+                addRecipeBtn.className = 'tree-item pl-10 pr-3 py-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-medium italic';
+                addRecipeBtn.textContent = '+ Add Recipe';
+                addRecipeBtn.onclick = () => {
+                    appData.recipes[bName].push({ name: `New ${bName} Recipe`, inputs: {}, outputs: {}, isAlternate: false });
+                    expandedBuildings.add(bName);
+                    renderTree();
+                    selectItem('recipe', bName, appData.recipes[bName].length - 1);
+                };
+                rList.appendChild(addRecipeBtn);
+
+                content.appendChild(rList);
+                bNode.appendChild(content);
+                dom.treeContainer.appendChild(bNode);
+            });
+            
+            // Post-render setup for heights and selection states
+            requestAnimationFrame(() => {
+                dom.treeContainer.querySelectorAll('.building-section').forEach(section => {
+                    const exactName = section.dataset.exactName;
+                    const content = section.querySelector('.collapsible-content');
+                    if (expandedBuildings.has(exactName) || dom.filterInput.value.trim() !== '') {
+                        content.style.maxHeight = content.scrollHeight + "px";
+                    }
+                });
+                updateSelectionHighlight();
+                handleFilter();
+            });
+        }
+
+        function handleFilter() {
+            if (!dom.filterInput) return;
+            const searchTerm = dom.filterInput.value.toLowerCase();
+            
+            dom.treeContainer.querySelectorAll('.building-section').forEach(section => {
+                const buildingName = section.dataset.buildingName;
+                const exactName = section.dataset.exactName;
+                let hasVisibleChild = false;
+                
+                section.querySelectorAll('.recipe-node').forEach(el => {
+                    const isVisible = el.dataset.searchTerms.includes(searchTerm);
+                    el.style.display = isVisible ? 'flex' : 'none';
+                    if (isVisible) hasVisibleChild = true;
+                });
+
+                const buildingMatches = buildingName.includes(searchTerm);
+                if (buildingMatches) {
+                    section.querySelectorAll('.recipe-node').forEach(el => el.style.display = 'flex');
+                    hasVisibleChild = true;
+                }
+
+                section.style.display = hasVisibleChild ? 'block' : 'none';
+
+                const header = section.querySelector('.collapsible-header');
+                const content = section.querySelector('.collapsible-content');
+                
+                if (searchTerm && hasVisibleChild) {
+                    header.classList.add('active');
+                    content.style.maxHeight = content.scrollHeight + "px";
+                } else if (!searchTerm) {
+                    if (expandedBuildings.has(exactName)) {
+                        header.classList.add('active');
+                        content.style.maxHeight = content.scrollHeight + "px";
+                    } else {
+                        header.classList.remove('active');
+                        content.style.maxHeight = null;
+                    }
+                }
+            });
+        }
+
+        // Apply highlights without rebuilding DOM
+        function updateSelectionHighlight() {
+            dom.treeContainer.querySelectorAll('.tree-item').forEach(el => {
+                el.classList.remove('selected');
+                if(el.classList.contains('recipe-node')) el.classList.remove('text-white');
+            });
+            
+            if (!currentSelection) return;
+            
+            const bSection = dom.treeContainer.querySelector(`.building-section[data-exact-name="${currentSelection.buildingName}"]`);
+            if (!bSection) return;
+
+            if (currentSelection.type === 'building') {
+                const bHeader = bSection.querySelector('.collapsible-header');
+                if (bHeader) bHeader.classList.add('selected');
+            } else if (currentSelection.type === 'recipe') {
+                const recipes = bSection.querySelectorAll('.recipe-node');
+                const rNode = recipes[currentSelection.recipeIndex];
+                if (rNode) rNode.classList.add('selected', 'text-white');
+            }
+        }
+
+        function selectItem(type, buildingName, recipeIndex = null) {
+            currentSelection = { type, buildingName, recipeIndex };
+            updateSelectionHighlight(); // Replaces the jerky full re-render
+            renderEditor();
+        }
+
+        function renderEditor() {
+            dom.editorContainer.innerHTML = '';
+            if (!currentSelection) return;
+
+            const { type, buildingName, recipeIndex } = currentSelection;
+            const container = document.createElement('div');
+            container.className = 'max-w-4xl mx-auto bg-gray-800 rounded-lg shadow-xl border border-gray-700 overflow-hidden';
+
+            if (type === 'building') {
+                const building = appData.buildings.find(b => b.name === buildingName);
+                if (!building) return;
+
+                container.innerHTML = `
+                    <div class="bg-gray-900/80 px-6 py-4 border-b border-gray-700 flex justify-between items-center">
+                        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                            <span class="text-indigo-400">Edit Building:</span> ${building.name}
+                        </h2>
+                        <button id="btn-delete-item" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 text-sm rounded transition-colors">Delete Building</button>
+                    </div>
+                    <div class="p-6 space-y-6">
+                        <div class="grid grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Building Name</label>
+                                <input type="text" id="edit-b-name" class="input-base" value="${building.name}">
+                                <p class="text-xs text-red-400 mt-1 hidden" id="err-b-name">Name already exists or invalid.</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Category</label>
+                                <select id="edit-b-category" class="input-base">
+                                    <option value="Production" ${building.category === 'Production' ? 'selected' : ''}>Production</option>
+                                    <option value="Extraction" ${building.category === 'Extraction' ? 'selected' : ''}>Extraction</option>
+                                    <option value="Power" ${building.category === 'Power' ? 'selected' : ''}>Power</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Power Base (MW)</label>
+                                <input type="number" id="edit-b-power" step="0.1" class="input-base" value="${building.power}">
+                                <p class="text-xs text-gray-500 mt-1">Negative for consumers, positive for generators.</p>
+                            </div>
+                        </div>
+                        
+                        <div class="border-t border-gray-700 pt-4 mt-6">
+                            <h3 class="text-lg font-bold text-yellow-400 mb-2">Build Cost</h3>
+                            <div id="dict-editor-cost"></div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-900/50 px-6 py-4 border-t border-gray-700 flex justify-end">
+                        <button id="btn-save-item" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded transition-colors">Save Changes</button>
+                    </div>
+                `;
+
+                dom.editorContainer.appendChild(container);
+
+                const costData = { ...building.cost };
+                renderDictionaryEditor(document.getElementById('dict-editor-cost'), costData, 'Item Name', 'Amount');
+
+                document.getElementById('btn-save-item').addEventListener('click', () => {
+                    const newName = document.getElementById('edit-b-name').value.trim();
+                    if (!newName) return;
+                    
+                    if (newName !== buildingName && appData.buildings.find(b => b.name === newName)) {
+                        document.getElementById('err-b-name').classList.remove('hidden');
+                        return;
+                    }
+
+                    building.category = document.getElementById('edit-b-category').value;
+                    building.power = parseFloat(document.getElementById('edit-b-power').value) || 0;
+                    building.cost = cleanDictionaryData(costData);
+
+                    if (newName !== buildingName) {
+                        building.name = newName;
+                        appData.recipes[newName] = appData.recipes[buildingName];
+                        delete appData.recipes[buildingName];
+                        currentSelection.buildingName = newName;
+                        expandedBuildings.delete(buildingName);
+                        expandedBuildings.add(newName);
+                    }
+
+                    showToast("Building updated!", "success");
+                    renderTree();
+                    selectItem('building', currentSelection.buildingName);
+                });
+
+                document.getElementById('btn-delete-item').addEventListener('click', () => {
+                    if (confirm(`Delete building '${buildingName}' and ALL its recipes?`)) {
+                        appData.buildings = appData.buildings.filter(b => b.name !== buildingName);
+                        delete appData.recipes[buildingName];
+                        currentSelection = null;
+                        renderTree();
+                        renderEditor();
+                        showToast("Building deleted.");
+                    }
+                });
+
+            } else if (type === 'recipe') {
+                const recipeList = appData.recipes[buildingName];
+                const recipe = recipeList[recipeIndex];
+                if (!recipe) return;
+
+                // Merge imported buildings and STANDARD_BUILDINGS for a complete dropdown
+                const allBuildingNames = new Set([...appData.buildings.map(b => b.name), ...STANDARD_BUILDINGS]);
+                const buildingOptions = Array.from(allBuildingNames).sort();
+
+                container.innerHTML = `
+                    <div class="bg-gray-900/80 px-6 py-4 border-b border-gray-700 flex justify-between items-center">
+                        <h2 class="text-xl font-bold text-white flex items-center gap-2">
+                            <span class="text-green-400">Edit Recipe:</span> ${recipe.name}
+                        </h2>
+                        <button id="btn-delete-item" class="bg-red-600 hover:bg-red-700 text-white px-3 py-1 text-sm rounded transition-colors">Delete Recipe</button>
+                    </div>
+                    <div class="p-6 space-y-6">
+                        <div class="grid grid-cols-2 gap-6">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Recipe Name</label>
+                                <input type="text" id="edit-r-name" class="input-base" value="${recipe.name}">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-400 mb-1">Building</label>
+                                <select id="edit-r-building" class="input-base">
+                                    ${buildingOptions.map(b => `<option value="${b}" ${b === buildingName ? 'selected' : ''}>${b}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4">
+                            <label class="flex items-center gap-3 cursor-pointer p-3 bg-gray-900/50 rounded border border-gray-700 hover:border-gray-500 transition-colors w-max">
+                                <input type="checkbox" id="edit-r-alt" class="w-5 h-5 rounded text-indigo-500 focus:ring-indigo-500 bg-gray-700 border-gray-600" ${recipe.isAlternate ? 'checked' : ''}>
+                                <span class="font-medium text-yellow-400 flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M10 3.5a1.5 1.5 0 01.936 2.65l-3.232 3.232a1.5 1.5 0 01-2.65-1.936L8.286 4.214A1.5 1.5 0 0110 3.5z"></path></svg>
+                                    Is Alternate Recipe
+                                </span>
+                            </label>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-6 border-t border-gray-700 pt-6">
+                            <div>
+                                <h3 class="text-lg font-bold text-orange-400 mb-2">Inputs (per min)</h3>
+                                <div id="dict-editor-in"></div>
+                            </div>
+                            <div>
+                                <h3 class="text-lg font-bold text-green-400 mb-2">Outputs (per min)</h3>
+                                <div id="dict-editor-out"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-gray-900/50 px-6 py-4 border-t border-gray-700 flex justify-end">
+                        <button id="btn-save-item" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded transition-colors">Save Changes</button>
+                    </div>
+                `;
+
+                dom.editorContainer.appendChild(container);
+
+                const inData = { ...recipe.inputs };
+                const outData = { ...recipe.outputs };
+
+                renderDictionaryEditor(document.getElementById('dict-editor-in'), inData, 'Item', 'Rate/min');
+                renderDictionaryEditor(document.getElementById('dict-editor-out'), outData, 'Item', 'Rate/min');
+
+                document.getElementById('btn-save-item').addEventListener('click', () => {
+                    const newName = document.getElementById('edit-r-name').value.trim();
+                    const targetBuilding = document.getElementById('edit-r-building').value;
+                    if (!newName) return;
+
+                    recipe.name = newName;
+                    if (document.getElementById('edit-r-alt').checked) {
+                        recipe.isAlternate = true;
+                    } else {
+                        delete recipe.isAlternate; 
+                    }
+                    
+                    recipe.inputs = cleanDictionaryData(inData);
+                    recipe.outputs = cleanDictionaryData(outData);
+
+                    // Allow moving the recipe to an entirely new building preset
+                    if (targetBuilding !== buildingName) {
+                        appData.recipes[buildingName].splice(recipeIndex, 1);
+                        
+                        // If it doesn't exist in our state yet, create the scaffold for it
+                        if (!appData.buildings.find(b => b.name === targetBuilding)) {
+                            appData.buildings.push({ name: targetBuilding, power: 0, category: 'Production', cost: {} });
+                            appData.recipes[targetBuilding] = [];
+                        }
+
+                        appData.recipes[targetBuilding].push(recipe);
+                        currentSelection.buildingName = targetBuilding;
+                        currentSelection.recipeIndex = appData.recipes[targetBuilding].length - 1;
+                        expandedBuildings.add(targetBuilding);
+                    }
+
+                    showToast("Recipe updated!", "success");
+                    renderTree();
+                    selectItem('recipe', currentSelection.buildingName, currentSelection.recipeIndex);
+                });
+
+                document.getElementById('btn-delete-item').addEventListener('click', () => {
+                    if (confirm(`Delete recipe '${recipe.name}'?`)) {
+                        appData.recipes[buildingName].splice(recipeIndex, 1);
+                        currentSelection = null;
+                        renderTree();
+                        renderEditor();
+                        showToast("Recipe deleted.");
+                    }
+                });
+            }
+        }
+
+        // --- Helper: Dictionary Editor (Key/Value pairs) ---
+        function renderDictionaryEditor(container, sourceData, keyPlaceholder, valPlaceholder) {
+            container.innerHTML = '';
+            const listContainer = document.createElement('div');
+            listContainer.className = 'space-y-2 mb-3';
+            
+            const renderRows = () => {
+                listContainer.innerHTML = '';
+                Object.entries(sourceData).forEach(([key, val]) => {
+                    const row = document.createElement('div');
+                    row.className = 'dict-row flex gap-2 items-center';
+                    
+                    const inputKey = document.createElement('input');
+                    inputKey.type = 'text';
+                    inputKey.value = key;
+                    inputKey.className = 'flex-1';
+                    inputKey.placeholder = keyPlaceholder;
+                    
+                    const inputVal = document.createElement('input');
+                    inputVal.type = 'number';
+                    inputVal.step = '0.01';
+                    inputVal.value = val;
+                    inputVal.className = 'w-24 text-right';
+                    inputVal.placeholder = valPlaceholder;
+
+                    const btnDel = document.createElement('button');
+                    btnDel.className = 'text-gray-500 hover:text-red-500 px-1';
+                    btnDel.innerHTML = '✕';
+                    
+                    const updateData = () => {
+                        const newKey = inputKey.value.trim();
+                        const newVal = parseFloat(inputVal.value) || 0;
+                        if (newKey !== key) {
+                            delete sourceData[key];
+                            if (newKey) sourceData[newKey] = newVal;
+                            renderRows();
+                        } else {
+                            sourceData[key] = newVal;
+                        }
+                    };
+
+                    inputKey.addEventListener('change', updateData);
+                    inputVal.addEventListener('input', () => sourceData[key] = parseFloat(inputVal.value) || 0);
+
+                    btnDel.addEventListener('click', () => {
+                        delete sourceData[key];
+                        renderRows();
+                    });
+
+                    row.appendChild(inputKey);
+                    row.appendChild(inputVal);
+                    row.appendChild(btnDel);
+                    listContainer.appendChild(row);
+                });
+            };
+
+            renderRows();
+
+            const btnAdd = document.createElement('button');
+            btnAdd.className = 'text-xs bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded transition-colors w-full border border-dashed border-gray-500';
+            btnAdd.textContent = '+ Add Item';
+            btnAdd.onclick = () => {
+                let newKey = 'New Item';
+                let counter = 1;
+                while(sourceData[newKey]) {
+                    newKey = `New Item ${counter++}`;
+                }
+                sourceData[newKey] = 0;
+                renderRows();
+            };
+
+            container.appendChild(listContainer);
+            container.appendChild(btnAdd);
+        }
+
+        function cleanDictionaryData(dict) {
+            const cleaned = {};
+            for (const [k, v] of Object.entries(dict)) {
+                if (k.trim() !== '') {
+                    cleaned[k.trim()] = Number(v) || 0;
+                }
+            }
+            return cleaned;
+        }
+
+    </script>
+</body>
+</html>

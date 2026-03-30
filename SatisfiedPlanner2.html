@@ -1,0 +1,1831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Satisfied Visual Planner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --canvas-bg: #11151c;
+            --card-bg: #1a202c;
+            --border-color: #2d3748;
+            --text-light: #e2e8f0;
+            --accent-indigo: #6366f1;
+            --accent-green: #4ade80;
+            --accent-orange: #f97316;
+            --accent-red: #ef4444;
+            --accent-cyan: #22d3ee;
+            --accent-purple: #a855f7;
+            --accent-yellow: #f59e0b;
+        }
+        body { font-family: 'Roboto', 'Inter', sans-serif; background-color: var(--canvas-bg); color: var(--text-light); overflow: hidden;}
+        
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+
+        /* Canvas & Grid - Absolute positioning to prevent grey borders */
+        #canvas-container { position: absolute; inset: 0; overflow: hidden; cursor: default; z-index: 10; }
+        #canvas-grid {
+            background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
+            background-size: 20px 20px; position: absolute; width: 100%; height: 100%; pointer-events: none;
+        }
+        #canvas-content, #connector-svg, #paste-preview-container { position: absolute; top: 0; left: 0; width: 1px; height: 1px; transform-origin: top left; }
+        #connector-svg { overflow: visible; pointer-events: none; }
+        
+        /* Uniform Cards */
+        .placed-card {
+            position: absolute; width: 400px; height: 350px; display: flex; flex-direction: column; cursor: grab; user-select: none;
+            border: 1px solid var(--border-color); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); background: var(--card-bg); backdrop-filter: blur(8px);
+            border-radius: 0.5rem; transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .placed-card.selected { border-color: var(--accent-cyan); box-shadow: 0 0 15px rgba(34, 211, 238, 0.4); z-index: 20; }
+        .placed-card.locked { border-color: var(--accent-yellow); }
+        .placed-card.somersloop-active { border-color: var(--accent-purple); box-shadow: 0 0 15px rgba(168, 85, 247, 0.4); }
+        
+        /* Rigid Layout structures inside Card */
+        .io-container-wrapper { flex: 1; display: flex; gap: 0.5rem; min-height: 0; min-width: 0; margin-top: 0.25rem; }
+        .io-col { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+        .io-list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 6px; margin: 0 -6px; display: flex; flex-direction: column; gap: 4px; }
+        .io-item { min-width: 0; } /* Prevents flex blowout */
+
+        /* Smooth Scrolling Text */
+        .name-wrapper { flex: 1; min-width: 0; overflow: hidden; position: relative; padding-right: 8px; display: flex; align-items: center; }
+        .name-scroll { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; transition: transform 0.3s; }
+        
+        .is-scrolling {
+            animation: marquee 3s linear infinite alternate;
+            text-overflow: clip !important;
+            overflow: visible !important;
+            max-width: none !important;
+            width: auto !important;
+        }
+        @keyframes marquee {
+            0%, 15% { transform: translateX(0); }
+            85%, 100% { transform: translateX(var(--scroll-dist, 0)); }
+        }
+
+        /* Direct Edit Inputs */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+
+        .inline-input { 
+            background: transparent; border: none; color: white; text-align: center; border-radius: 0.25rem; 
+            outline: none; font-weight: bold; width: 100%;
+        }
+        
+        /* Rate Box Container - Rigid Width */
+        .rate-container { flex-shrink: 0; width: 85px; }
+        .rate-input {
+            background: transparent; border: none; color: inherit; text-align: right; width: 100%; font-weight: bold; cursor: text;
+        }
+        .rate-input:focus { outline: none; color: white !important; }
+
+        /* Custom Slider Range */
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 14px; width: 14px; border-radius: 50%; background: var(--accent-indigo); cursor: pointer; margin-top: -5px; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #4b5563; border-radius: 2px; }
+
+        /* Nodes & Lines */
+        .connector-node { width: 14px; height: 14px; border-radius: 50%; cursor: crosshair; z-index: 20; position: absolute; top: 50%; transform: translateY(-50%); border: 2px solid #000; transition: transform 0.2s; pointer-events: all;}
+        .connector-node.input { left: -7px; background-color: var(--accent-orange); }
+        .connector-node.output { right: -7px; background-color: var(--accent-green); }
+        .connector-node:hover { transform: translateY(-50%) scale(1.3); }
+        
+        .connection-line { stroke-width: 3; fill: none; stroke: var(--accent-indigo); pointer-events: none; transition: stroke 0.3s, stroke-width 0.2s, filter 0.2s; }
+        .connection-line.interactable { pointer-events: stroke; cursor: pointer; }
+        .connection-line.deficit { stroke: var(--accent-red); stroke-width: 4; }
+        .connection-line.selected { stroke: var(--accent-cyan); filter: drop-shadow(0 0 4px var(--accent-cyan)); }
+        
+        /* UI Panels Overlaying Canvas */
+        #left-sidebar { width: 288px; transform: translateX(0); transition: transform 0.3s ease-in-out; }
+        #left-sidebar.closed-left { transform: translateX(-100%); }
+        
+        #right-sidebar { width: 340px; transform: translateX(0); transition: transform 0.3s ease-in-out; }
+        #right-sidebar.closed-right { transform: translateX(100%); }
+
+        .tab-btn.active { background-color: rgba(99, 102, 241, 0.2); border-left: 3px solid var(--accent-indigo); }
+        
+        #selection-box { position: fixed; border: 1px solid var(--accent-cyan); background-color: rgba(34, 211, 238, 0.1); z-index: 2000; pointer-events: none; }
+        .context-menu { position: fixed; background-color: var(--card-bg); border: 1px solid var(--border-color); border-radius: 0.375rem; box-shadow: 0 4px 6px rgba(0,0,0,0.5); z-index: 3000; padding: 4px 0;}
+        .context-menu button { display: block; width: 100%; text-align: left; padding: 6px 16px; font-size: 0.875rem; color: var(--text-light); }
+        .context-menu button:hover { background-color: #374151; }
+
+        .collapsible-content { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; }
+        .collapsible-header.active .chevron { transform: rotate(90deg); }
+        .tree-item { cursor: pointer; user-select: none; }
+        .tree-item:hover { background-color: rgba(255, 255, 255, 0.05); }
+    </style>
+</head>
+<body>
+
+    <!-- STARTUP SCREEN -->
+    <div id="startup-screen" class="fixed inset-0 z-50 bg-gray-900 flex items-center justify-center">
+        <div class="bg-gray-800 p-8 rounded-lg shadow-2xl border border-gray-700 text-center max-w-md w-full">
+            <svg class="w-16 h-16 text-indigo-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+            <h1 class="text-2xl font-bold text-white mb-2">Satisfied Visual Planner</h1>
+            <p class="text-gray-400 text-sm mb-6">A fully standalone factory planner. To begin, please import your recipes.js file.</p>
+            <button id="btn-startup-import" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded shadow-lg transition-colors flex justify-center items-center gap-2">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                Load recipes.js
+            </button>
+            <input type="file" id="file-startup-import" class="hidden" accept=".js,.json,text/javascript">
+            <p id="startup-error" class="text-red-400 text-xs mt-4 hidden">Invalid file format.</p>
+        </div>
+    </div>
+
+    <!-- MAIN APP UI -->
+    <div id="app-ui" class="hidden h-screen flex flex-col relative">
+        <!-- Header -->
+        <header class="bg-gray-800 p-2 shadow-lg z-50 border-b border-gray-700 flex items-center justify-between gap-4 shrink-0 relative">
+            <div class="flex items-center gap-2">
+                <button id="btn-toggle-left" class="p-1.5 rounded hover:bg-gray-700 text-gray-300">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                </button>
+                <h1 class="text-lg font-bold text-white tracking-tight">Satisfied</h1>
+            </div>
+            
+            <div class="flex-1 flex justify-center items-center gap-4 text-xs">
+                <div class="bg-gray-900 px-3 py-1.5 rounded border border-gray-700 flex gap-4 items-center">
+                    <span class="font-bold text-orange-400">Inputs:</span>
+                    <div id="hdr-inputs" class="flex gap-3 text-gray-300 max-w-[200px] overflow-hidden whitespace-nowrap">None</div>
+                </div>
+                <div class="bg-gray-900 px-3 py-1.5 rounded border border-gray-700 flex gap-4 items-center">
+                    <span class="font-bold text-green-400">Outputs:</span>
+                    <div id="hdr-outputs" class="flex gap-3 text-gray-300 max-w-[200px] overflow-hidden whitespace-nowrap">None</div>
+                </div>
+                <div class="bg-gray-900 px-3 py-1.5 rounded border border-gray-700 font-bold text-base">
+                    <span id="hdr-power" class="text-white">0</span> <span class="text-cyan-400 text-xs">MW</span>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button id="btn-export-bp" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-1.5 px-3 text-xs rounded">Export BP</button>
+                <button id="btn-import-bp" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-1.5 px-3 text-xs rounded">Import BP</button>
+                <input type="file" id="file-import-bp" class="hidden" accept=".json">
+                <button id="btn-toggle-right" class="bg-purple-600 hover:bg-purple-500 text-white font-bold py-1.5 px-3 text-xs rounded">Summary</button>
+            </div>
+        </header>
+
+        <!-- Canvas Area (Bottom Layer) -->
+        <main id="canvas-container" class="bg-gray-900">
+            <div id="canvas-grid"></div>
+            <svg id="connector-svg"></svg>
+            <div id="canvas-content"></div>
+            
+            <!-- Dynamic Paste Preview Container -->
+            <div id="paste-preview-container" class="opacity-50 pointer-events-none z-[25]"></div>
+            
+            <div id="selection-box" class="hidden"></div>
+            
+            <!-- Global Popup Slider -->
+            <div id="popup-slider-container" class="hidden absolute bg-gray-800 border border-gray-600 rounded p-3 z-[6000] shadow-xl flex flex-col gap-2 transform -translate-x-1/2 min-w-[200px]">
+                <div class="flex justify-between text-xs text-gray-400 w-full">
+                    <span>0</span>
+                    <span id="popup-slider-val" class="text-white font-bold text-sm"></span>
+                    <span id="popup-slider-max"></span>
+                </div>
+                <input type="range" id="popup-slider" step="0.1" class="w-full mt-1">
+            </div>
+        </main>
+
+        <!-- Left Sidebar Overlay -->
+        <aside id="left-sidebar" class="bg-gray-800 border-r border-gray-700 flex flex-col absolute left-0 top-[52px] bottom-0 z-40 shadow-[4px_0_15px_rgba(0,0,0,0.3)]">
+            <div class="flex border-b border-gray-700 text-sm shrink-0">
+                <button id="tab-library" class="tab-btn active flex-1 py-2 font-medium text-gray-300 hover:text-white">Library</button>
+                <button id="tab-config" class="tab-btn flex-1 py-2 font-medium text-gray-300 hover:text-white">Config & Alts</button>
+            </div>
+            
+            <!-- Library Panel -->
+            <div id="panel-library" class="flex-1 flex flex-col overflow-hidden">
+                <div class="p-2 border-b border-gray-700 shrink-0">
+                    <input type="search" id="recipe-filter" placeholder="Search..." class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1.5 text-xs text-white">
+                </div>
+                <div id="tree-container" class="flex-1 overflow-y-auto p-1"></div>
+            </div>
+
+            <!-- Config Panel -->
+            <div id="panel-config" class="flex-1 overflow-y-auto p-3 hidden space-y-5">
+                <div>
+                    <h3 class="text-xs font-bold text-indigo-400 mb-2 uppercase">Default Strategy</h3>
+                    <select id="cfg-build-strat" class="w-full bg-gray-700 text-xs text-white p-1.5 rounded border border-gray-600">
+                        <option value="simple">Simple (Fastest)</option>
+                        <option value="resourceSaver">Resource Saver</option>
+                    </select>
+                    <label class="flex items-center gap-2 mt-2 text-xs text-gray-300 cursor-pointer">
+                        <input type="checkbox" id="cfg-use-sam" class="rounded bg-gray-700 border-gray-600 text-indigo-500 focus:ring-indigo-500">
+                        Use SAM Recipes
+                    </label>
+                </div>
+                <div class="flex-1 flex flex-col min-h-0">
+                    <h3 class="text-xs font-bold text-green-400 mb-2 uppercase flex justify-between items-center shrink-0">
+                        Unlocked Alternates
+                        <div class="flex gap-1">
+                            <button id="btn-alts-all" class="bg-gray-700 hover:bg-gray-600 px-1.5 py-0.5 rounded text-[10px] text-white">All</button>
+                            <button id="btn-alts-none" class="bg-gray-700 hover:bg-gray-600 px-1.5 py-0.5 rounded text-[10px] text-white">None</button>
+                        </div>
+                    </h3>
+                    <div id="alt-recipe-list" class="flex-1 space-y-1 bg-gray-900/50 p-2 rounded overflow-y-auto border border-gray-700"></div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Right Sidebar Overlay -->
+        <aside id="right-sidebar" class="closed-right bg-gray-800 border-l border-gray-700 flex flex-col absolute right-0 top-[52px] bottom-0 z-40 shadow-[-4px_0_15px_rgba(0,0,0,0.3)]">
+            <div class="p-3 border-b border-gray-700 flex justify-between items-center shrink-0">
+                <h2 class="font-bold text-white">Factory Ledger</h2>
+                <button id="btn-close-right" class="text-gray-400 hover:text-white">&times;</button>
+            </div>
+            <div class="flex-1 overflow-y-auto p-3 text-xs space-y-4" id="summary-content">
+                <div class="text-center text-gray-500 py-4">Add buildings to see summary.</div>
+            </div>
+        </aside>
+    </div>
+
+    <div id="context-menu-container"></div>
+    <div id="toast-container" class="fixed bottom-4 right-4 z-[5000] flex flex-col gap-2"></div>
+
+    <!-- Auto-Build Modal -->
+    <div id="autobuild-modal" class="hidden fixed inset-0 bg-black/70 z-[4000] flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-gray-800 rounded-lg p-6 w-96 shadow-2xl border border-gray-700">
+            <h3 class="text-xl font-bold text-white mb-4">Auto-Build Options</h3>
+            <p class="text-xs text-gray-400 mb-4">Automatically constructs and connects missing input requirements up the chain.</p>
+            <div class="space-y-4 text-sm">
+                <div>
+                    <label class="block text-gray-400 mb-1">Strategy</label>
+                    <select id="modal-ab-strat" class="w-full bg-gray-700 border border-gray-600 rounded p-2 text-white">
+                        <option value="simple">Simple (Fastest / Least Items)</option>
+                        <option value="resourceSaver">Resource Saver (Efficient)</option>
+                    </select>
+                </div>
+                <label class="flex items-center gap-2 text-gray-300 cursor-pointer">
+                    <input type="checkbox" id="modal-ab-alts" checked class="rounded bg-gray-700 border-gray-600 text-indigo-500">
+                    Allow Unlocked Alternates
+                </label>
+                <label class="flex items-center gap-2 text-gray-300 cursor-pointer">
+                    <input type="checkbox" id="modal-ab-sam" class="rounded bg-gray-700 border-gray-600 text-indigo-500">
+                    Allow SAM Recipes
+                </label>
+            </div>
+            <div class="flex justify-end gap-3 mt-6">
+                <button id="cancel-autobuild" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded text-white text-sm transition-colors">Cancel</button>
+                <button id="confirm-autobuild" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded text-white font-bold text-sm shadow transition-colors">Build Chain</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Import Options Modal -->
+    <div id="import-bp-modal" class="hidden fixed inset-0 bg-black/70 z-[4000] flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-gray-800 rounded-lg p-6 w-96 shadow-2xl border border-gray-700">
+            <h3 class="text-xl font-bold text-white mb-4">Import Blueprint</h3>
+            <p class="text-sm text-gray-400 mb-6">How would you like to load this factory?</p>
+            <div class="flex flex-col gap-3">
+                <button id="import-replace" class="w-full bg-red-600 hover:bg-red-500 rounded text-white font-bold py-2 shadow transition-colors">Replace Current Canvas</button>
+                <button id="import-paste" class="w-full bg-indigo-600 hover:bg-indigo-500 rounded text-white font-bold py-2 shadow transition-colors">Paste into Current Canvas</button>
+                <button id="cancel-import" class="w-full bg-gray-600 hover:bg-gray-500 rounded text-white text-sm py-2 transition-colors mt-2">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // STATE & CONSTANTS
+        // ==========================================
+        const state = {
+            buildingsMap: new Map(),
+            recipeData: null,
+            placedCards: new Map(),
+            connections: new Map(),
+            viewport: { x: 0, y: 0, zoom: 1 },
+            panning: false, dragInfo: null, isDrawingConnection: false, connectionStartNode: null, connectionDragStarted: false,
+            isSelecting: false, selectionBoxStart: {x:0, y:0},
+            selectedCardIds: new Set(), selectedConnectionIds: new Set(), lockedCardIds: new Set(),
+            nextCardId: 1, nextConnectionId: 1, gridSize: 20, syncGroupCounter: 1,
+            unlockedRecipes: new Set(), clipboard: null, pastePreview: null,
+            config: { buildStrategy: 'simple', useSAM: false }
+        };
+
+        const SYNC_COLORS = ['text-indigo-400', 'text-pink-400', 'text-blue-400', 'text-green-400', 'text-orange-400', 'text-yellow-400', 'text-red-400'];
+
+        const SOMERSLOOP_SLOTS = {
+            'Constructor': 1, 'Smelter': 1, 'Assembler': 2, 'Foundry': 2, 'Refinery': 2, 'Converter': 2,
+            'Manufacturer': 4, 'Blender': 4, 'Particle Accelerator': 4, 'Quantum Encoder': 4,
+        };
+
+        let lastMousePos = { x: window.innerWidth/2, y: window.innerHeight/2 };
+        let activeAutoBuildTarget = null; 
+        let activeSliderInput = null;
+        let pendingImport = null;
+
+        const dom = {
+            appUi: document.getElementById('app-ui'), startupScreen: document.getElementById('startup-screen'),
+            fileStartup: document.getElementById('file-startup-import'), btnStartup: document.getElementById('btn-startup-import'),
+            canvasContainer: document.getElementById('canvas-container'), canvasGrid: document.getElementById('canvas-grid'),
+            canvasContent: document.getElementById('canvas-content'), svgGroup: document.getElementById('connector-svg'),
+            pastePreviewContainer: document.getElementById('paste-preview-container'),
+            selectionBox: document.getElementById('selection-box'), treeContainer: document.getElementById('tree-container'),
+            filterInput: document.getElementById('recipe-filter'), altRecipeList: document.getElementById('alt-recipe-list'),
+            leftSidebar: document.getElementById('left-sidebar'), rightSidebar: document.getElementById('right-sidebar'),
+            summaryContent: document.getElementById('summary-content'), contextMenu: document.getElementById('context-menu-container'),
+            toastContainer: document.getElementById('toast-container'),
+            abModal: document.getElementById('autobuild-modal'), abConfirm: document.getElementById('confirm-autobuild'),
+            abCancel: document.getElementById('cancel-autobuild'),
+            fileImportBp: document.getElementById('file-import-bp'), importBpModal: document.getElementById('import-bp-modal'),
+            importReplace: document.getElementById('import-replace'), importPaste: document.getElementById('import-paste'),
+            cancelImport: document.getElementById('cancel-import')
+        };
+
+        // ==========================================
+        // STARTUP & DATA LOAD
+        // ==========================================
+        dom.btnStartup.addEventListener('click', () => dom.fileStartup.click());
+        dom.fileStartup.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            try {
+                const text = await file.text();
+                const jsonLike = text.replace(/[\s\S]*?export\s+(?:const|let|var)\s+\w+\s*=\s*/, '').replace(/;?\s*$/, '');
+                const parsed = new Function(`return (${jsonLike})`)();
+                
+                if (parsed && parsed.buildings && parsed.recipes) {
+                    state.recipeData = parsed;
+                    parsed.buildings.forEach(b => state.buildingsMap.set(b.name, b));
+                    initApp();
+                } else throw new Error("Invalid structure");
+            } catch (err) {
+                console.error(err);
+                document.getElementById('startup-error').classList.remove('hidden');
+            }
+        });
+
+        function initApp() {
+            dom.startupScreen.classList.add('hidden');
+            dom.appUi.classList.remove('hidden');
+            
+            Object.entries(state.recipeData.recipes).forEach(([bName, recipes]) => {
+                recipes.forEach(r => { if (r.isAlternate) state.unlockedRecipes.add(`${bName}|${r.name}`); });
+            });
+            populateLibrary();
+            populateConfig();
+            setupEventListeners();
+            renderViewport();
+        }
+
+        // ==========================================
+        // CORE UTILS
+        // ==========================================
+        const round = (val, dec) => Number(Math.round(val + 'e' + dec) + 'e-' + dec);
+        const screenToWorld = (sx, sy) => {
+            const rect = dom.canvasContainer.getBoundingClientRect();
+            return {
+                x: (sx - rect.left - state.viewport.x) / state.viewport.zoom,
+                y: (sy - rect.top - state.viewport.y) / state.viewport.zoom
+            };
+        };
+        const getNodeWorldPos = (node) => {
+            const rect = node.getBoundingClientRect();
+            return screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        };
+        function showToast(message) {
+            const t = document.createElement('div');
+            t.className = 'px-4 py-2 bg-gray-700 text-white rounded shadow-lg text-sm transition-all duration-300 transform translate-y-full opacity-0 z-[5000]';
+            t.textContent = message;
+            dom.toastContainer.appendChild(t);
+            requestAnimationFrame(() => t.classList.remove('translate-y-full', 'opacity-0'));
+            setTimeout(() => { t.classList.add('opacity-0'); setTimeout(()=>t.remove(),300); }, 2000);
+        }
+
+        // ==========================================
+        // UI: LIBRARY & SIDEBARS
+        // ==========================================
+        function populateLibrary() {
+            dom.treeContainer.innerHTML = '';
+            const recipesByBuilding = state.recipeData.recipes;
+            if(!recipesByBuilding['Special']) recipesByBuilding['Special'] = [{name: 'Alien Power Augmenter', inputs:{}, outputs:{}}];
+
+            Object.entries(recipesByBuilding).sort(([a],[b]) => a.localeCompare(b)).forEach(([bName, recipes]) => {
+                const bNode = document.createElement('div');
+                bNode.className = 'building-section';
+                bNode.dataset.search = bName.toLowerCase();
+                
+                const header = document.createElement('div');
+                header.className = 'collapsible-header tree-item p-2 flex justify-between items-center text-xs font-bold text-gray-300';
+                header.innerHTML = `<div class="flex items-center gap-1 pointer-events-none"><svg class="chevron w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M9 5l7 7-7 7"/></svg>${bName}</div><span class="text-[10px] bg-gray-700 px-1 rounded">${recipes.length}</span>`;
+                
+                const content = document.createElement('div');
+                content.className = 'collapsible-content border-l border-gray-700 ml-3 pl-2 mb-1';
+                
+                const isPower = state.buildingsMap.get(bName)?.category === 'Power';
+                if (isPower && bName !== 'Alien Power Augmenter') {
+                    const rNode = createRecipeDragNode(bName, recipes[0], bName, true);
+                    content.appendChild(rNode);
+                } else {
+                    recipes.forEach(r => content.appendChild(createRecipeDragNode(r.name, r, bName, false)));
+                }
+
+                header.onclick = () => {
+                    header.classList.toggle('active');
+                    content.style.maxHeight = header.classList.contains('active') ? content.scrollHeight + "px" : null;
+                };
+                bNode.appendChild(header); bNode.appendChild(content);
+                dom.treeContainer.appendChild(bNode);
+            });
+        }
+
+        function createRecipeDragNode(displayName, recipe, buildingName, isPower) {
+            const el = document.createElement('div');
+            el.className = 'recipe-node tree-item py-1.5 px-2 text-[11px] text-gray-400 flex items-center gap-1.5';
+            el.draggable = true;
+            el.dataset.search = displayName.toLowerCase();
+            const isAlt = recipe.isAlternate ? 'text-yellow-500' : 'text-gray-600';
+            el.innerHTML = `<svg class="w-2.5 h-2.5 ${isAlt}" fill="currentColor" viewBox="0 0 20 20"><path d="M10 3.5a1.5 1.5 0 01.936 2.65l-3.232 3.232a1.5 1.5 0 01-2.65-1.936L8.286 4.214A1.5 1.5 0 0110 3.5z"></path></svg><span class="truncate pointer-events-none">${displayName}</span>`;
+            el.addEventListener('dragstart', e => e.dataTransfer.setData('text/plain', `${buildingName}|${recipe.name}`));
+            return el;
+        }
+
+        dom.filterInput.addEventListener('input', e => {
+            const term = e.target.value.toLowerCase();
+            dom.treeContainer.querySelectorAll('.building-section').forEach(sec => {
+                let showSec = sec.dataset.search.includes(term);
+                sec.querySelectorAll('.recipe-node').forEach(node => {
+                    const showNode = node.dataset.search.includes(term);
+                    node.style.display = showNode ? 'flex' : 'none';
+                    if(showNode) showSec = true;
+                });
+                sec.style.display = showSec ? 'block' : 'none';
+                const hdr = sec.querySelector('.collapsible-header');
+                const content = sec.querySelector('.collapsible-content');
+                if(term && showSec) { hdr.classList.add('active'); content.style.maxHeight = content.scrollHeight + "px"; }
+                else if (!term) { hdr.classList.remove('active'); content.style.maxHeight = null; }
+            });
+        });
+
+        function populateConfig() {
+            dom.altRecipeList.innerHTML = '';
+            Object.entries(state.recipeData.recipes).forEach(([bName, recipes]) => {
+                recipes.forEach(r => {
+                    if (r.isAlternate) {
+                        const key = `${bName}|${r.name}`;
+                        const lbl = document.createElement('label');
+                        lbl.className = 'flex items-center gap-2 text-[11px] text-gray-300 p-1 hover:bg-gray-700 cursor-pointer rounded';
+                        lbl.innerHTML = `<input type="checkbox" value="${key}" class="rounded bg-gray-800 border-gray-600 text-indigo-500" ${state.unlockedRecipes.has(key) ? 'checked' : ''}> <span class="truncate">${r.name}</span>`;
+                        lbl.querySelector('input').addEventListener('change', e => {
+                            if(e.target.checked) state.unlockedRecipes.add(key); else state.unlockedRecipes.delete(key);
+                        });
+                        dom.altRecipeList.appendChild(lbl);
+                    }
+                });
+            });
+        }
+
+        // Tabs & Toggles
+        document.getElementById('tab-library').onclick = (e) => { e.target.classList.add('active'); document.getElementById('tab-config').classList.remove('active'); document.getElementById('panel-library').classList.remove('hidden'); document.getElementById('panel-config').classList.add('hidden'); };
+        document.getElementById('tab-config').onclick = (e) => { e.target.classList.add('active'); document.getElementById('tab-library').classList.remove('active'); document.getElementById('panel-config').classList.remove('hidden'); document.getElementById('panel-library').classList.add('hidden'); };
+        document.getElementById('btn-toggle-left').onclick = () => dom.leftSidebar.classList.toggle('closed-left');
+        document.getElementById('btn-toggle-right').onclick = () => dom.rightSidebar.classList.toggle('closed-right');
+        document.getElementById('btn-close-right').onclick = () => dom.rightSidebar.classList.add('closed-right');
+        document.getElementById('btn-alts-all').onclick = () => { dom.altRecipeList.querySelectorAll('input').forEach(i => {i.checked=true; state.unlockedRecipes.add(i.value);}); };
+        document.getElementById('btn-alts-none').onclick = () => { dom.altRecipeList.querySelectorAll('input').forEach(i => {i.checked=false; state.unlockedRecipes.delete(i.value);}); };
+
+        document.getElementById('cfg-build-strat').onchange = e => state.config.buildStrategy = e.target.value;
+        document.getElementById('cfg-use-sam').onchange = e => state.config.useSAM = e.target.checked;
+
+        // ==========================================
+        // CARDS & DIRECT EDITING
+        // ==========================================
+        
+        const renderIORow = (dict, type, cData, bName) => Object.keys(dict).map(name => {
+            const cClock = (cData?.powerShard??100) / 100;
+            const cBldgs = cData?.buildings ?? 1;
+            const sMult = (!cData || type === 'input') ? 1 : (SOMERSLOOP_SLOTS[bName] > 0 ? (1 + ((cData.somersloops??0) / SOMERSLOOP_SLOTS[bName])) : 1);
+            const tgtVal = dict[name] * cClock * sMult * cBldgs;
+            
+            return `
+            <div class="io-item relative flex items-center bg-gray-800/80 rounded ${type==='input' ? 'pl-4 pr-1' : 'pl-1 pr-4'} py-1.5 mb-1" data-${type}-name="${name}">
+                ${type==='input' ? `<div class="connector-node input" data-type="input" data-item-name="${name}"></div>` : ''}
+                
+                <div class="name-wrapper" title="${name}">
+                    <span class="name-scroll text-gray-200 text-xs pointer-events-none">${name}</span>
+                </div>
+
+                <div class="rate-container bg-gray-900/90 rounded px-1.5 py-1 z-10 border border-gray-700 focus-within:border-indigo-400 transition-colors flex items-center">
+                    <input type="number" class="rate-input ${type==='input' ? 'text-orange-400' : 'text-green-400'}" data-target-${type}="${name}" data-type="${type}" value="${tgtVal.toFixed(2)}" title="${type==='output' ? 'Click to edit target rate' : ''}">
+                </div>
+                       
+                ${type==='output' ? `<div class="connector-node output" data-type="output" data-item-name="${name}"></div>` : ''}
+            </div>`
+        }).join('') || '<div class="text-gray-600 text-center py-2 text-xs">None</div>';
+
+        function updateCardSyncVisual(c) {
+            let ind = c.element.querySelector('.sync-indicator');
+            if (c.syncId) {
+                if (!ind) {
+                    ind = document.createElement('div');
+                    ind.className = `sync-indicator absolute right-1 top-1 ${c.syncColor}`;
+                    ind.innerHTML = `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" title="Linked Chain"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>`;
+                    c.element.querySelector('.header-wrap').appendChild(ind);
+                }
+                ind.className = `sync-indicator absolute right-1 top-1 ${c.syncColor}`;
+                ind.classList.remove('hidden');
+            } else {
+                if (ind) ind.classList.add('hidden');
+            }
+        }
+
+        function createCard(bName, recipe, wx, wy, id=null, config=null) {
+            const cardId = id || `card-${state.nextCardId++}`;
+            const card = document.createElement('div');
+            card.id = cardId;
+            card.className = 'placed-card p-3 text-xs';
+            card.style.transform = `translate(${wx}px, ${wy}px)`;
+            
+            const cData = {
+                id: cardId, element: card, building: bName, recipe: recipe, x: wx, y: wy,
+                buildings: config?.buildings ?? 1, powerShard: config?.powerShard ?? 100,
+                somersloops: config?.somersloops ?? 0, isFueled: config?.isFueled ?? false,
+                isLocked: config?.isLocked ?? false, syncId: config?.syncId ?? null, syncColor: config?.syncColor ?? null,
+                inputs: {}, outputs: {}, power: 0, inputDeficits: new Set()
+            };
+            if(cData.isLocked) card.classList.add('locked');
+
+            const isPower = state.buildingsMap.get(bName)?.category === 'Power';
+            const isExtractor = state.buildingsMap.get(bName)?.category === 'Extraction';
+            const sSlots = SOMERSLOOP_SLOTS[bName] || 0;
+
+            let ioHTML = '';
+            if (bName === 'Alien Power Augmenter') {
+                ioHTML = `<div class="text-center py-4 flex-1 flex flex-col justify-center"><p class="text-purple-400 font-bold mb-2 text-sm">Provides 500 MW</p>
+                          <label class="cursor-pointer text-xs text-gray-300 flex items-center justify-center gap-1"><input type="checkbox" class="is-fueled-cb h-4 w-4 rounded bg-gray-700 border-gray-600"> Fueled (+30% Boost)</label></div>`;
+            } else {
+                let fuelSelect = '';
+                if(isPower) {
+                    const fuels = state.recipeData.recipes[bName];
+                    fuelSelect = `<select class="fuel-select w-full bg-gray-800 text-white rounded mb-2 border border-gray-600 p-1.5 text-xs shrink-0">${fuels.map(f => `<option value="${f.name}" ${f.name===recipe.name?'selected':''}>${f.name}</option>`).join('')}</select>`;
+                }
+
+                let leftColHTML = '';
+                if (isExtractor) {
+                    leftColHTML = `
+                        <div class="flex flex-col items-center justify-center h-full bg-gray-800/50 rounded border border-gray-700/50 p-2">
+                            <span class="text-[10px] text-gray-500 font-bold uppercase text-center mb-1">Total Factory Demand</span>
+                            <span class="text-xl font-bold text-orange-400" data-value="total-demand">0.00</span>
+                        </div>
+                    `;
+                } else {
+                    leftColHTML = `<div class="text-[10px] text-gray-500 font-bold mb-1 uppercase text-center border-b border-gray-700 shrink-0">Inputs</div>
+                                   <div class="inputs-container io-list">${renderIORow(recipe.inputs, 'input', cData, bName)}</div>`;
+                }
+
+                ioHTML = `
+                    ${fuelSelect}
+                    <div class="io-container-wrapper">
+                        <div class="io-col">${leftColHTML}</div>
+                        <div class="io-col">
+                            <div class="text-[10px] text-gray-500 font-bold mb-1 uppercase text-center border-b border-gray-700 shrink-0">Outputs</div>
+                            <div class="outputs-container io-list">${renderIORow(recipe.outputs, 'output', cData, bName)}</div>
+                        </div>
+                    </div>`;
+            }
+
+            card.innerHTML = `
+                <div class="header-wrap flex justify-between items-start mb-2 border-b border-gray-700 pb-2 pointer-events-none shrink-0 w-full overflow-hidden relative">
+                    <div class="w-full overflow-hidden pr-6 flex items-center">
+                        <div class="name-wrapper" title="${recipe.name}">
+                            <span class="name-scroll font-bold text-white text-[15px] leading-tight pointer-events-none">${recipe.name}</span>
+                        </div>
+                        <div class="text-xs text-indigo-400 mt-1 shrink-0 ml-2">${bName}</div>
+                    </div>
+                </div>
+                ${ioHTML}
+                <div class="mt-3 pt-3 border-t border-gray-700/50 flex justify-between items-center shrink-0">
+                    <div class="flex items-center gap-2">
+                        <div class="flex items-center bg-gray-900/80 rounded px-2 py-1 border border-gray-600 focus-within:border-indigo-400 transition-colors" title="Buildings Count">
+                            <svg class="w-3.5 h-3.5 text-gray-400 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                            <input type="number" class="inline-input input-bldgs w-8 font-bold text-[12px]" data-edit-type="buildings" value="${cData.buildings}" min="1">
+                            <span class="text-gray-500 text-[10px] ml-0.5">x</span>
+                        </div>
+                        <div class="flex items-center bg-gray-900/80 rounded px-2 py-1 border border-gray-600 focus-within:border-yellow-400 transition-colors" title="Clock Speed">
+                            <svg class="w-3.5 h-3.5 text-yellow-500 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd" /></svg>
+                            <input type="number" class="inline-input input-clock w-12 font-bold text-[12px]" data-edit-type="clock" value="${cData.powerShard}" min="0.1" max="250" step="0.1">
+                            <span class="text-gray-500 text-[10px] ml-0.5">%</span>
+                        </div>
+                        ${sSlots > 0 ? `
+                        <div class="flex items-center bg-purple-900/20 rounded px-2 py-1 border border-purple-500/50 focus-within:border-purple-400 transition-colors" title="Somersloops (Max: ${sSlots})">
+                            <svg class="w-3.5 h-3.5 text-purple-400 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                            <input type="number" class="inline-input input-loops w-6 text-purple-300 font-bold text-[12px]" data-edit-type="loops" value="${cData.somersloops}" min="0" max="${sSlots}">
+                            <span class="text-purple-500/50 text-[10px] ml-0.5">/${sSlots}</span>
+                        </div>` : ''}
+                    </div>
+                    <div class="text-right">
+                        <div class="text-cyan-400 font-bold text-[13px]"><span data-value="power">0</span><span class="text-[10px] text-cyan-600 ml-0.5">MW</span></div>
+                    </div>
+                </div>
+            `;
+
+            cData.toggleScrolling = () => {
+                const isHovered = card.matches(':hover');
+                const isSelected = state.selectedCardIds.has(cData.id);
+                const shouldScroll = isHovered || isSelected;
+
+                const applyScroll = (wrapper) => {
+                    if (!wrapper) return;
+                    const scrollEl = wrapper.querySelector('.name-scroll');
+                    if (!scrollEl) return;
+                    
+                    if (shouldScroll) {
+                        scrollEl.style.maxWidth = 'none';
+                        if (scrollEl.scrollWidth > wrapper.clientWidth) {
+                            const dist = wrapper.clientWidth - scrollEl.scrollWidth - 4;
+                            scrollEl.style.setProperty('--scroll-dist', `${dist}px`);
+                            scrollEl.classList.add('is-scrolling');
+                        }
+                    } else {
+                        scrollEl.classList.remove('is-scrolling');
+                        scrollEl.style.removeProperty('--scroll-dist');
+                        scrollEl.style.maxWidth = '100%';
+                    }
+                };
+
+                applyScroll(card.querySelector('.header-wrap .name-wrapper'));
+                card.querySelectorAll('.io-item .name-wrapper').forEach(w => applyScroll(w));
+            };
+
+            card.addEventListener('mouseenter', () => cData.toggleScrolling());
+            card.addEventListener('mouseleave', () => cData.toggleScrolling());
+
+            dom.canvasContent.appendChild(card);
+            state.placedCards.set(cardId, cData);
+            if (cData.syncId) updateCardSyncVisual(cData);
+            bindCardEvents(cData);
+            updateCardCalculations(cData);
+            return cData;
+        }
+
+        function showPopupSlider(inputEl, cData) {
+            activeSliderInput = inputEl;
+            
+            const rect = inputEl.getBoundingClientRect();
+            const container = document.getElementById('popup-slider-container');
+            const slider = document.getElementById('popup-slider');
+            const valDisplay = document.getElementById('popup-slider-val');
+            const maxDisplay = document.getElementById('popup-slider-max');
+            
+            container.classList.remove('hidden');
+            container.style.left = `${rect.left + rect.width / 2}px`;
+            container.style.top = `${rect.bottom + 8}px`;
+            
+            let min = 0, max = 100, step = 1, isInt = false;
+            const editType = inputEl.dataset.editType;
+            
+            if (editType === 'buildings') {
+                min = 1; max = 100; step = 1; isInt = true;
+            } else if (editType === 'clock') {
+                min = 0.1; max = 250; step = 0.1;
+            } else if (editType === 'loops') {
+                min = 0; max = SOMERSLOOP_SLOTS[cData.building] || 0; step = 1; isInt = true;
+                if (max === 0) return;
+            } else {
+                const isInput = inputEl.dataset.type === 'input';
+                const itemName = isInput ? inputEl.dataset.targetInput : inputEl.dataset.targetOutput;
+                const baseRate = isInput ? cData.recipe.inputs[itemName] : cData.recipe.outputs[itemName];
+                const sMult = (!isInput && SOMERSLOOP_SLOTS[cData.building] > 0) ? (1 + (cData.somersloops / SOMERSLOOP_SLOTS[cData.building])) : 1;
+                max = baseRate * cData.buildings * sMult * 2.5; 
+                step = 0.1;
+            }
+            
+            slider.min = min;
+            slider.max = max;
+            slider.step = step;
+            slider.value = parseFloat(inputEl.value) || min;
+            valDisplay.textContent = inputEl.value;
+            maxDisplay.textContent = isInt ? max.toString() : max.toFixed(0);
+            
+            // Live trigger whole factory calculations and Sync cascading
+            slider.oninput = (e) => { 
+                const val = parseFloat(e.target.value);
+                const displayVal = isInt ? Math.round(val).toString() : val.toFixed(2);
+                valDisplay.textContent = displayVal; 
+                inputEl.value = displayVal;
+                inputEl.dispatchEvent(new Event('change'));
+            };
+        }
+
+        function bindCardEvents(cData) {
+            const el = cData.element;
+            el.addEventListener('contextmenu', e => {
+                e.preventDefault(); e.stopPropagation();
+                showContextMenu(e, cData);
+            });
+
+            const iBldgs = el.querySelector('.input-bldgs'); 
+            const iClock = el.querySelector('.input-clock'); 
+            const iLoops = el.querySelector('.input-loops'); 
+            const iFueled = el.querySelector('.is-fueled-cb');
+            const sFuel = el.querySelector('.fuel-select');
+
+            const applyEdits = () => {
+                // Calculate old absolute power/capacity multiplier before applying changes
+                const oldFactor = cData.buildings * (cData.powerShard / 100);
+
+                if(iBldgs) cData.buildings = Math.max(1, parseInt(iBldgs.value)||1);
+                if(iClock) cData.powerShard = Math.min(250, Math.max(0.1, parseFloat(iClock.value)||100));
+                if(iLoops) cData.somersloops = Math.max(0, Math.min(SOMERSLOOP_SLOTS[cData.building], parseInt(iLoops.value)||0));
+                if(iFueled) cData.isFueled = iFueled.checked;
+                
+                const newFactor = cData.buildings * (cData.powerShard / 100);
+
+                // --- LIVE SYNC CHAIN SCALING LOGIC ---
+                if (cData.syncId && oldFactor > 0 && Math.abs(newFactor - oldFactor) > 0.001) {
+                    const ratio = newFactor / oldFactor;
+                    
+                    state.placedCards.forEach(c => {
+                        if (c.id !== cData.id && c.syncId === cData.syncId && !c.isLocked) {
+                            const cOldFactor = c.buildings * (c.powerShard / 100);
+                            const cNewFactor = cOldFactor * ratio;
+                            
+                            let nb = c.buildings;
+                            let nc = (cNewFactor / nb) * 100;
+
+                            // Auto-adjust building counts if clock goes out of bounds
+                            if (nc > 250) {
+                                nb = Math.ceil(cNewFactor / 2.5);
+                                nc = (cNewFactor / nb) * 100;
+                            } else if (nc <= 0.1 && cNewFactor > 0) {
+                                nb = 1;
+                                nc = cNewFactor * 100;
+                            }
+
+                            c.buildings = Math.max(1, nb);
+                            c.powerShard = Math.min(250, Math.max(0.1, nc));
+                            
+                            // Immediately update DOM inputs so sliders dragging feels real-time
+                            const bIn = c.element.querySelector('.input-bldgs'); 
+                            const cIn = c.element.querySelector('.input-clock');
+                            if(bIn && document.activeElement !== bIn) bIn.value = c.buildings;
+                            if(cIn && document.activeElement !== cIn) cIn.value = c.powerShard.toFixed(2);
+                        }
+                    });
+                }
+
+                updateAllCalculations();
+            };
+
+            [iBldgs, iClock, iLoops].forEach(i => { 
+                if(i) { 
+                    i.addEventListener('change', applyEdits); 
+                    i.addEventListener('mousedown', e=>e.stopPropagation()); 
+                    i.addEventListener('focus', e => showPopupSlider(e.target, cData));
+                }
+            });
+            if(iFueled) { iFueled.checked = cData.isFueled; iFueled.addEventListener('change', applyEdits); iFueled.addEventListener('mousedown', e=>e.stopPropagation()); }
+            
+            if(sFuel) {
+                sFuel.addEventListener('mousedown', e=>e.stopPropagation());
+                sFuel.addEventListener('change', e => {
+                    const nRec = state.recipeData.recipes[cData.building].find(r => r.name === e.target.value);
+                    if(nRec) {
+                        cData.recipe = nRec;
+                        const inC = el.querySelector('.inputs-container');
+                        if (inC) inC.innerHTML = renderIORow(nRec.inputs, 'input', cData, cData.building);
+                        el.querySelector('.name-scroll').textContent = nRec.name;
+                        
+                        const toDel = [];
+                        state.connections.forEach((v,k) => { if(v.from.cardId===cData.id || v.to.cardId===cData.id) toDel.push(k);});
+                        toDel.forEach(k=>state.connections.delete(k));
+                        updateAllCalculations();
+                        bindCardEvents(cData); 
+                        cData.toggleScrolling();
+                    }
+                });
+            }
+
+            // Rate Editing triggers proportion math
+            el.querySelectorAll('.rate-input').forEach(input => {
+                input.addEventListener('mousedown', e => e.stopPropagation());
+                input.addEventListener('change', e => {
+                    const desiredRate = parseFloat(e.target.value);
+                    const isInput = e.target.dataset.type === 'input';
+                    const itemName = isInput ? e.target.dataset.targetInput : e.target.dataset.targetOutput;
+                    const baseRate = isInput ? cData.recipe.inputs[itemName] : cData.recipe.outputs[itemName];
+                    
+                    if (isNaN(desiredRate) || desiredRate <= 0) {
+                        e.target.value = (isInput ? cData.inputs[itemName] : cData.outputs[itemName] || 0).toFixed(2);
+                        return;
+                    }
+                    
+                    if (baseRate > 0) {
+                        let reqClock;
+                        if (isInput) {
+                            reqClock = (desiredRate / (baseRate * cData.buildings)) * 100;
+                        } else {
+                            const sMult = SOMERSLOOP_SLOTS[cData.building] > 0 ? (1 + (cData.somersloops / SOMERSLOOP_SLOTS[cData.building])) : 1;
+                            reqClock = (desiredRate / (baseRate * cData.buildings * sMult)) * 100;
+                        }
+                        reqClock = Math.min(250, Math.max(0.1, reqClock));
+                        if(iClock) iClock.value = reqClock.toFixed(2);
+                        applyEdits();
+                    }
+                });
+                input.addEventListener('focus', e => showPopupSlider(e.target, cData));
+            });
+        }
+
+        // ==========================================
+        // COPY / PASTE / CUT / SELECT LOGIC
+        // ==========================================
+        function copySelection() {
+            if (state.selectedCardIds.size === 0) return;
+            const cards = [];
+            let minX = Infinity, minY = Infinity;
+            state.selectedCardIds.forEach(id => {
+                const c = state.placedCards.get(id);
+                if (c) { cards.push(c); minX = Math.min(minX, c.x); minY = Math.min(minY, c.y); }
+            });
+            const conns = [];
+            state.connections.forEach(c => {
+                if (state.selectedCardIds.has(c.from.cardId) && state.selectedCardIds.has(c.to.cardId)) conns.push(c);
+            });
+            // Assign a new bulk syncID if there were syncs copied so they don't tether back to the old group
+            const bulkSyncBase = `sync-${Date.now()}`;
+            
+            state.clipboard = {
+                cards: cards.map(c => ({ building: c.building, recipe: c.recipe, dx: c.x - minX, dy: c.y - minY, config: { buildings: c.buildings, powerShard: c.powerShard, somersloops: c.somersloops, isFueled: c.isFueled, isLocked: c.isLocked, syncId: c.syncId ? `${bulkSyncBase}-${c.syncId}` : null, syncColor: c.syncColor}, oldId: c.id })),
+                connections: conns.map(c => ({from: {...c.from}, to: {...c.to}}))
+            };
+            try { localStorage.setItem('satisfactory_planner_clipboard', JSON.stringify(state.clipboard)); } catch(e) {}
+            showToast(`Copied ${cards.length} cards`);
+        }
+
+        function triggerPastePreview() {
+            try {
+                const localClip = localStorage.getItem('satisfactory_planner_clipboard');
+                if (localClip) state.clipboard = JSON.parse(localClip);
+            } catch(e) { console.error("Clipboard parse error"); }
+
+            if (!state.clipboard || !state.clipboard.cards || state.clipboard.cards.length === 0) return;
+            state.pastePreview = state.clipboard;
+            dom.pastePreviewContainer.innerHTML = '';
+            
+            state.pastePreview.cards.forEach(cc => {
+                const tempCard = createCard(cc.building, cc.recipe, cc.dx, cc.dy, `preview-${cc.oldId}`, cc.config);
+                state.placedCards.delete(tempCard.id);
+                dom.canvasContent.removeChild(tempCard.element);
+                
+                tempCard.element.id = '';
+                tempCard.element.style.pointerEvents = 'none';
+                tempCard.element.classList.remove('selected', 'cursor-grab');
+                tempCard.element.classList.add('opacity-60');
+                
+                dom.pastePreviewContainer.appendChild(tempCard.element);
+            });
+            dom.canvasContainer.style.cursor = 'copy';
+        }
+
+        function finalizePaste(e) {
+            if (!state.pastePreview) return;
+            const wp = screenToWorld(e.clientX, e.clientY);
+            const basex = Math.round(wp.x / state.gridSize) * state.gridSize;
+            const basey = Math.round(wp.y / state.gridSize) * state.gridSize;
+            
+            const idMap = new Map();
+            state.selectedCardIds.clear();
+            state.selectedConnectionIds.clear();
+            
+            state.pastePreview.cards.forEach(cc => {
+                const newCard = createCard(cc.building, cc.recipe, basex + cc.dx, basey + cc.dy, null, cc.config);
+                idMap.set(cc.oldId, newCard.id);
+                state.selectedCardIds.add(newCard.id);
+            });
+            
+            state.pastePreview.connections.forEach(c => {
+                const fId = idMap.get(c.from.cardId), tId = idMap.get(c.to.cardId);
+                if (fId && tId) {
+                    const nId = `conn-${state.nextConnectionId++}`;
+                    state.connections.set(nId, {from: {cardId: fId, itemName: c.from.itemName}, to: {cardId: tId, itemName: c.to.itemName}});
+                    state.selectedConnectionIds.add(nId);
+                }
+            });
+            renderHighlights();
+            updateAllCalculations();
+            showToast(`Pasted ${state.pastePreview.cards.length} cards`);
+            cancelPaste();
+        }
+
+        function cancelPaste() {
+            state.pastePreview = null;
+            dom.pastePreviewContainer.innerHTML = '';
+            dom.canvasContainer.style.cursor = 'default';
+        }
+
+        function deleteSelection() {
+            let count = 0;
+            if (state.selectedConnectionIds.size > 0) {
+                state.selectedConnectionIds.forEach(id => state.connections.delete(id));
+                state.selectedConnectionIds.clear(); 
+            }
+            if (state.selectedCardIds.size > 0) {
+                state.selectedCardIds.forEach(id => {
+                    state.placedCards.get(id)?.element.remove(); state.placedCards.delete(id); count++;
+                    const toDel = []; state.connections.forEach((v,k) => { if(v.from.cardId===id || v.to.cardId===id) toDel.push(k); });
+                    toDel.forEach(k=>state.connections.delete(k));
+                });
+                state.selectedCardIds.clear(); 
+            }
+            if(count > 0) showToast(`Deleted ${count} cards`);
+            updateAllCalculations();
+        }
+
+        // ==========================================
+        // CANVAS & EVENT LISTENERS
+        // ==========================================
+        function setupEventListeners() {
+            dom.canvasContainer.addEventListener('mousedown', e => {
+                if (e.target.closest('.context-menu')) return;
+                dom.contextMenu.innerHTML = '';
+                
+                // Prevent slider interactions from triggering canvas panning/closing
+                if (e.target.closest('#popup-slider-container')) {
+                    e.stopPropagation();
+                    return;
+                }
+
+                if(!e.target.classList.contains('rate-input') && !e.target.classList.contains('inline-input')) {
+                    document.getElementById('popup-slider-container').classList.add('hidden');
+                    activeSliderInput = null;
+                }
+
+                if (state.pastePreview) {
+                    if (e.button === 0) finalizePaste(e);
+                    else cancelPaste();
+                    return;
+                }
+
+                // 1. Connection Drag Drop start
+                if (e.target.classList.contains('connector-node')) {
+                    e.stopPropagation();
+                    if (state.isDrawingConnection) { 
+                        completeConnection(state.connectionStartNode, e.target); 
+                        cancelConnectionDrawing(); 
+                    } else { 
+                        state.isDrawingConnection = true; 
+                        state.connectionStartNode = e.target; 
+                        state.connectionDragStarted = false; 
+                    }
+                    return;
+                }
+
+                // 2. Card Interaction
+                const cardEl = e.target.closest('.placed-card');
+                if (cardEl && e.button === 0 && !e.target.closest('input, select, button')) {
+                    e.stopPropagation();
+                    const id = cardEl.id;
+                    if (!e.ctrlKey && !e.shiftKey && !state.selectedCardIds.has(id)) {
+                        state.selectedCardIds.clear();
+                        state.selectedConnectionIds.clear();
+                    }
+                    if ((e.ctrlKey || e.shiftKey)) {
+                        if(state.selectedCardIds.has(id)) state.selectedCardIds.delete(id);
+                        else state.selectedCardIds.add(id);
+                    } else {
+                        state.selectedCardIds.add(id);
+                    }
+                    
+                    renderHighlights();
+                    state.dragInfo = {
+                        dragStartPos: { x: e.clientX, y: e.clientY }, dragThreshold: false, isRendering: false,
+                        cards: Array.from(state.selectedCardIds).map(cid => {
+                            const c = state.placedCards.get(cid); return { c, sx: c.x, sy: c.y };
+                        })
+                    };
+                    return;
+                }
+
+                if (state.isDrawingConnection) { cancelConnectionDrawing(); return; }
+
+                // 3. Canvas Background Interaction
+                if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey && !e.ctrlKey && !e.metaKey)) {
+                    e.preventDefault(); state.panning = true; dom.canvasContainer.style.cursor = 'grabbing';
+                } 
+                else if (e.target.classList.contains('connection-line')) {
+                    if(!e.ctrlKey && !e.shiftKey) { state.selectedCardIds.clear(); state.selectedConnectionIds.clear(); }
+                    const cid = e.target.dataset.connId;
+                    if(state.selectedConnectionIds.has(cid)) state.selectedConnectionIds.delete(cid);
+                    else state.selectedConnectionIds.add(cid);
+                    renderHighlights(); renderConnections();
+                } 
+                else if (e.button === 0) {
+                    e.preventDefault(); 
+                    if(!e.ctrlKey && !e.shiftKey) { state.selectedCardIds.clear(); state.selectedConnectionIds.clear(); }
+                    renderHighlights(); renderConnections();
+                    state.isSelecting = true;
+                    dom.selectionBox.classList.remove('hidden');
+                    state.selectionBoxStart = { x: e.clientX, y: e.clientY };
+                    dom.selectionBox.style.cssText = `left: ${e.clientX}px; top: ${e.clientY}px; width: 0; height: 0;`;
+                }
+            });
+
+            document.addEventListener('mousemove', e => {
+                lastMousePos = { x: e.clientX, y: e.clientY };
+
+                if (state.pastePreview) {
+                    const wp = screenToWorld(e.clientX, e.clientY);
+                    const nx = Math.round(wp.x / state.gridSize) * state.gridSize;
+                    const ny = Math.round(wp.y / state.gridSize) * state.gridSize;
+                    const { x, y, zoom } = state.viewport;
+                    dom.pastePreviewContainer.style.transform = `translate(${x + nx*zoom}px, ${y + ny*zoom}px) scale(${zoom})`;
+                }
+
+                if (state.panning) {
+                    document.getElementById('popup-slider-container').classList.add('hidden');
+                    state.viewport.x += e.movementX;
+                    state.viewport.y += e.movementY;
+                    renderViewport();
+                } else if (state.isSelecting) {
+                    const { x, y } = state.selectionBoxStart;
+                    dom.selectionBox.style.left = `${Math.min(x, e.clientX)}px`;
+                    dom.selectionBox.style.top = `${Math.min(y, e.clientY)}px`;
+                    dom.selectionBox.style.width = `${Math.abs(x - e.clientX)}px`;
+                    dom.selectionBox.style.height = `${Math.abs(y - e.clientY)}px`;
+                } else if (state.dragInfo) {
+                    const dx = e.clientX - state.dragInfo.dragStartPos.x;
+                    const dy = e.clientY - state.dragInfo.dragStartPos.y;
+                    if (!state.dragInfo.dragThreshold && Math.sqrt(dx*dx + dy*dy) > 5) state.dragInfo.dragThreshold = true;
+                    if (state.dragInfo.dragThreshold) {
+                        state.dragInfo.cards.forEach(({ c, sx, sy }) => {
+                            c.x = Math.round((sx + dx/state.viewport.zoom) / state.gridSize) * state.gridSize;
+                            c.y = Math.round((sy + dy/state.viewport.zoom) / state.gridSize) * state.gridSize;
+                            c.element.style.transform = `translate(${c.x}px, ${c.y}px)`;
+                        });
+                        if (state.dragInfo && !state.dragInfo.isRendering) {
+                            state.dragInfo.isRendering = true;
+                            requestAnimationFrame(() => { 
+                                renderConnections(); 
+                                if(state.dragInfo) state.dragInfo.isRendering = false; 
+                            });
+                        }
+                    }
+                } else if (state.isDrawingConnection) {
+                    state.connectionDragStarted = true;
+                    handleConnectionDraw(e);
+                }
+            });
+
+            document.addEventListener('mouseup', e => {
+                if (state.panning) { state.panning = false; dom.canvasContainer.style.cursor = 'default'; }
+                if (state.isSelecting) {
+                    state.isSelecting = false;
+                    const rect = dom.selectionBox.getBoundingClientRect();
+                    dom.selectionBox.classList.add('hidden');
+                    
+                    if (rect.width > 5 || rect.height > 5) {
+                        state.placedCards.forEach(c => {
+                            const cr = c.element.getBoundingClientRect();
+                            if (rect.left < cr.right && rect.right > cr.left && rect.top < cr.bottom && rect.bottom > cr.top) state.selectedCardIds.add(c.id);
+                        });
+                        dom.svgGroup.querySelectorAll('.connection-line').forEach(line => {
+                            const lr = line.getBoundingClientRect();
+                            if (rect.left < lr.right && rect.right > lr.left && rect.top < lr.bottom && rect.bottom > lr.top) state.selectedConnectionIds.add(line.dataset.connId);
+                        });
+                        renderHighlights();
+                        renderConnections();
+                    }
+                }
+                
+                if (state.isDrawingConnection) {
+                    const tempLine = document.getElementById('temp-connection-line');
+                    if (tempLine) tempLine.style.pointerEvents = 'none'; 
+
+                    const elUnderMouse = document.elementFromPoint(e.clientX, e.clientY);
+                    const endNode = elUnderMouse ? elUnderMouse.closest('.connector-node') : null;
+                    if (endNode && endNode !== state.connectionStartNode) {
+                        completeConnection(state.connectionStartNode, endNode);
+                    }
+                    cancelConnectionDrawing();
+                }
+
+                if (state.dragInfo) { state.dragInfo = null; updateAllCalculations(); }
+            });
+
+            dom.canvasContainer.addEventListener('wheel', e => {
+                e.preventDefault();
+                document.getElementById('popup-slider-container').classList.add('hidden');
+                const rect = dom.canvasContainer.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left, mouseY = e.clientY - rect.top;
+                const zoomFactor = 1.1; const oldZoom = state.viewport.zoom;
+                const newZoom = Math.max(0.1, Math.min(2, e.deltaY < 0 ? oldZoom * zoomFactor : oldZoom / zoomFactor));
+                state.viewport.x = mouseX - (mouseX - state.viewport.x) * (newZoom / oldZoom);
+                state.viewport.y = mouseY - (mouseY - state.viewport.y) * (newZoom / oldZoom);
+                state.viewport.zoom = newZoom;
+                renderViewport();
+            }, { passive: false });
+
+            dom.canvasContainer.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+            dom.canvasContainer.addEventListener('drop', e => {
+                e.preventDefault();
+                const data = e.dataTransfer.getData('text/plain');
+                if(!data) return;
+                let [bName, rName] = data.split('|');
+                let recipe = (state.recipeData.recipes[bName] || []).find(r => r.name === rName);
+                if (bName === 'Special') { recipe = { name: rName, inputs: {}, outputs: {} }; bName = rName; }
+                if (recipe) {
+                    const wp = screenToWorld(e.clientX, e.clientY);
+                    createCard(bName, recipe, wp.x - 200, wp.y - 175);
+                }
+            });
+
+            window.addEventListener('keydown', e => {
+                if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT') return;
+                if (e.key === 'Delete' || e.key === 'Backspace') deleteSelection();
+                if (e.key === 'Escape') { dom.contextMenu.innerHTML = ''; cancelConnectionDrawing(); dom.abModal.classList.add('hidden'); document.getElementById('popup-slider-container').classList.add('hidden'); dom.importBpModal.classList.add('hidden'); if(state.pastePreview) cancelPaste(); }
+                if (e.ctrlKey || e.metaKey) {
+                    if (e.key.toLowerCase() === 'c') { e.preventDefault(); copySelection(); }
+                    if (e.key.toLowerCase() === 'x') { e.preventDefault(); copySelection(); deleteSelection(); }
+                    if (e.key.toLowerCase() === 'v') { e.preventDefault(); triggerPastePreview(); }
+                    if (e.key.toLowerCase() === 'a') { 
+                        e.preventDefault(); 
+                        state.placedCards.forEach((v,k) => state.selectedCardIds.add(k)); 
+                        state.connections.forEach((v,k) => state.selectedConnectionIds.add(k));
+                        renderHighlights(); renderConnections();
+                    }
+                }
+            });
+            window.addEventListener('contextmenu', e => e.preventDefault());
+        }
+
+        // ==========================================
+        // CONNECTIONS
+        // ==========================================
+        function handleConnectionDraw(e) {
+            let tempLine = document.getElementById('temp-connection-line');
+            if (!tempLine) {
+                tempLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                tempLine.id = 'temp-connection-line';
+                tempLine.setAttribute('class', 'connection-line');
+                tempLine.style.pointerEvents = 'none'; 
+                dom.svgGroup.appendChild(tempLine);
+            }
+            const p1 = getNodeWorldPos(state.connectionStartNode);
+            const p2 = screenToWorld(e.clientX, e.clientY);
+            const dx = Math.abs(p2.x - p1.x) * 0.5;
+            tempLine.setAttribute('d', `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`);
+        }
+
+        function cancelConnectionDrawing() {
+            document.getElementById('temp-connection-line')?.remove();
+            state.isDrawingConnection = false; state.connectionStartNode = null; state.connectionDragStarted = false;
+        }
+
+        function completeConnection(startNode, endNode) {
+            if (!startNode || !endNode || startNode === endNode) return;
+            const sId = startNode.closest('.placed-card').id, eId = endNode.closest('.placed-card').id;
+            const sItem = startNode.dataset.itemName, eItem = endNode.dataset.itemName;
+            if (sId !== eId && startNode.dataset.type === 'output' && endNode.dataset.type === 'input' && sItem === eItem) {
+                
+                // Inherit or Merge Sync Groups if necessary
+                const cA = state.placedCards.get(sId);
+                const cB = state.placedCards.get(eId);
+                if (cA.syncId && !cB.syncId) {
+                    cB.syncId = cA.syncId; cB.syncColor = cA.syncColor; updateCardSyncVisual(cB);
+                } else if (cB.syncId && !cA.syncId) {
+                    cA.syncId = cB.syncId; cA.syncColor = cB.syncColor; updateCardSyncVisual(cA);
+                } else if (cA.syncId && cB.syncId && cA.syncId !== cB.syncId) {
+                    const oldSync = cB.syncId;
+                    state.placedCards.forEach(c => {
+                        if(c.syncId === oldSync) { c.syncId = cA.syncId; c.syncColor = cA.syncColor; updateCardSyncVisual(c); }
+                    });
+                }
+
+                state.connections.set(`conn-${state.nextConnectionId++}`, {
+                    from: { cardId: sId, itemName: sItem }, to: { cardId: eId, itemName: eItem }
+                });
+                updateAllCalculations();
+            }
+        }
+
+        // ==========================================
+        // CONTEXT MENU & MODALS
+        // ==========================================
+        function showContextMenu(e, cData) {
+            dom.contextMenu.innerHTML = '';
+            const menu = document.createElement('div');
+            menu.className = 'context-menu';
+            menu.style.left = `${e.clientX}px`; menu.style.top = `${e.clientY}px`;
+            
+            const isLocked = state.lockedCardIds.has(cData.id);
+            const hasUnconn = cData.recipe && Object.keys(cData.recipe.inputs).some(i => ![...state.connections.values()].some(c => c.to.cardId === cData.id && c.to.itemName === i));
+            const isSynced = cData.syncId !== null;
+
+            menu.innerHTML = `
+                <button data-action="duplicate">Duplicate</button>
+                <button data-action="toggle-lock">${isLocked ? 'Unlock' : 'Lock'} Card</button>
+                ${isSynced 
+                    ? `<button data-action="unsync">🔗 Unlink/Unsync Chain</button>` 
+                    : `<button data-action="sync-chain">🔗 Link/Sync Chain</button><button data-action="sync-neighbors">🔗 Link/Sync Neighbors</button>`}
+                <hr class="border-gray-600 my-1">
+                <button data-action="arrange">Auto Arrange Chain</button>
+                <button data-action="balance" class="text-yellow-400">Auto Balance Chain</button>
+                ${hasUnconn ? `<button data-action="build" class="text-cyan-400">Auto-Build Inputs</button>` : ''}
+                <hr class="border-gray-600 my-1">
+                <button data-action="delete" class="text-red-400">Delete</button>
+            `;
+            dom.contextMenu.appendChild(menu);
+
+            const close = () => dom.contextMenu.innerHTML = '';
+            menu.onclick = ev => {
+                const action = ev.target.dataset.action;
+                if (!action) return;
+                
+                if (action === 'delete') {
+                    if(!state.selectedCardIds.has(cData.id)) state.selectedCardIds.add(cData.id);
+                    deleteSelection();
+                }
+                if (action === 'duplicate') {
+                    createCard(cData.building, cData.recipe, cData.x + 40, cData.y + 40, null, { buildings: cData.buildings, powerShard: cData.powerShard, somersloops: cData.somersloops, isFueled: cData.isFueled });
+                }
+                if (action === 'toggle-lock') {
+                    cData.isLocked = !isLocked;
+                    if(cData.isLocked) { state.lockedCardIds.add(cData.id); cData.element.classList.add('locked');}
+                    else { state.lockedCardIds.delete(cData.id); cData.element.classList.remove('locked');}
+                }
+                if (action === 'sync-chain' || action === 'sync-neighbors') {
+                    const newSyncId = `sync-grp-${state.syncGroupCounter++}`;
+                    const color = SYNC_COLORS[Math.floor(Math.random() * SYNC_COLORS.length)];
+                    
+                    let targetSet = new Set([cData.id]);
+                    if (action === 'sync-chain') {
+                        targetSet = getConnectedSet(cData.id);
+                    } else {
+                        state.connections.forEach(c => {
+                            if(c.from.cardId === cData.id) targetSet.add(c.to.cardId);
+                            if(c.to.cardId === cData.id) targetSet.add(c.from.cardId);
+                        });
+                    }
+
+                    targetSet.forEach(id => {
+                        const c = state.placedCards.get(id);
+                        if(c) {
+                            c.syncId = newSyncId; c.syncColor = color; updateCardSyncVisual(c);
+                        }
+                    });
+                }
+                if (action === 'unsync') {
+                    const oldId = cData.syncId;
+                    state.placedCards.forEach(c => {
+                        if(c.syncId === oldId) { c.syncId = null; c.syncColor = null; updateCardSyncVisual(c); }
+                    });
+                }
+                if (action === 'arrange') groupedArrangeLayout(cData);
+                if (action === 'balance') autoBalanceChain(cData, state.config);
+                if (action === 'build') {
+                    activeAutoBuildTarget = cData.id;
+                    document.getElementById('modal-ab-strat').value = state.config.buildStrategy;
+                    document.getElementById('modal-ab-sam').checked = state.config.useSAM;
+                    dom.abModal.classList.remove('hidden');
+                }
+                close();
+            };
+            setTimeout(() => document.addEventListener('click', close, {once:true}), 0);
+        }
+
+        dom.abCancel.onclick = () => { dom.abModal.classList.add('hidden'); activeAutoBuildTarget = null; };
+        dom.abConfirm.onclick = () => {
+            if(activeAutoBuildTarget) {
+                const config = {
+                    buildStrategy: document.getElementById('modal-ab-strat').value,
+                    useAlts: document.getElementById('modal-ab-alts').checked,
+                    useSAM: document.getElementById('modal-ab-sam').checked
+                };
+                autoBuildInputsForCard(activeAutoBuildTarget, config);
+                dom.abModal.classList.add('hidden');
+                activeAutoBuildTarget = null;
+            }
+        };
+
+        // ==========================================
+        // CALCULATIONS & UI RENDER
+        // ==========================================
+        function updateExtractorDemand() {
+            const totalCons = new Map();
+            state.placedCards.forEach(c => {
+                Object.entries(c.inputs).forEach(([n, v]) => totalCons.set(n, (totalCons.get(n)||0) + v));
+            });
+            state.placedCards.forEach(c => {
+                if (state.buildingsMap.get(c.building)?.category === 'Extraction') {
+                    const outName = Object.keys(c.recipe.outputs)[0];
+                    const demEl = c.element.querySelector('[data-value="total-demand"]');
+                    if (demEl && outName) {
+                        demEl.textContent = (totalCons.get(outName) || 0).toFixed(2);
+                    }
+                }
+            });
+        }
+
+        function updateAllCalculations() {
+            state.placedCards.forEach(c => { if (c.building !== 'Alien Power Augmenter') updateCardCalculations(c); });
+            calculateAndRenderNetworkStatus();
+            updateExtractorDemand();
+            renderSummary();
+        }
+
+        function updateCardCalculations(cData) {
+            const { recipe, buildings, powerShard, somersloops, element, building } = cData;
+            const clock = powerShard / 100;
+            const sSlots = SOMERSLOOP_SLOTS[building] || 0;
+            const sMult = sSlots > 0 ? (1 + (somersloops / sSlots)) : 1;
+
+            cData.inputs = {};
+            Object.entries(recipe.inputs).forEach(([n, r]) => {
+                cData.inputs[n] = round(r * clock * buildings, 3);
+            });
+            
+            cData.outputs = {};
+            Object.entries(recipe.outputs).forEach(([n, r]) => {
+                cData.outputs[n] = round(r * clock * sMult * buildings, 3);
+            });
+
+            const bPower = state.buildingsMap.get(building)?.power || 0;
+            if (bPower > 0) cData.power = round(bPower * clock * buildings, 3);
+            else if (bPower < 0) cData.power = round(-(-bPower * Math.pow(clock, 1.321928) * Math.pow(sMult, 2) * buildings), 3);
+            else cData.power = 0;
+
+            const pel = element.querySelector('[data-value="power"]'); if(pel) pel.textContent = Math.round(cData.power);
+            element.classList.toggle('somersloop-active', somersloops > 0);
+        }
+
+        function calculateAndRenderNetworkStatus() {
+            let changed = true, iters = 0;
+            const effOuts = new Map();
+            state.placedCards.forEach(c => effOuts.set(c.id, {...c.outputs}));
+
+            while(changed && iters < 50) {
+                changed = false; iters++;
+                const dem = new Map(), sup = new Map();
+                
+                state.connections.forEach(c => {
+                    const cCard = state.placedCards.get(c.to.cardId);
+                    if(cCard) dem.set(`${c.from.cardId}:${c.from.itemName}`, (dem.get(`${c.from.cardId}:${c.from.itemName}`) || 0) + (cCard.inputs[c.to.itemName]||0));
+                });
+
+                state.connections.forEach(c => {
+                    const outK = `${c.from.cardId}:${c.from.itemName}`, inK = `${c.to.cardId}:${c.to.itemName}`;
+                    const sOut = effOuts.get(c.from.cardId);
+                    if (sOut) {
+                        const tSup = sOut[c.from.itemName] || 0, tDem = dem.get(outK) || 1;
+                        const cCard = state.placedCards.get(c.to.cardId);
+                        const req = cCard ? (cCard.inputs[c.to.itemName]||0) : 0;
+                        let s = req; if(tSup < tDem) s = req * (tSup / tDem);
+                        sup.set(inK, (sup.get(inK)||0) + s);
+                    }
+                });
+
+                state.placedCards.forEach(c => {
+                    if (c.building === 'Alien Power Augmenter') return;
+                    let eff = 1;
+                    Object.entries(c.inputs).forEach(([n, r]) => {
+                        if(r > 0) {
+                            const iEff = (sup.get(`${c.id}:${n}`)||0) / r;
+                            if(iEff < eff) eff = iEff;
+                        }
+                    });
+                    const curOuts = effOuts.get(c.id);
+                    for (const n in curOuts) {
+                        const nEffOut = (c.outputs[n]||0) * eff;
+                        if(Math.abs(curOuts[n] - nEffOut) > 0.001) { curOuts[n] = nEffOut; changed = true; }
+                    }
+                });
+            }
+
+            // Final Pass for UI
+            const dem = new Map(), sup = new Map();
+            state.connections.forEach(c => {
+                const cCard = state.placedCards.get(c.to.cardId);
+                if(cCard) dem.set(`${c.from.cardId}:${c.from.itemName}`, (dem.get(`${c.from.cardId}:${c.from.itemName}`)||0) + (cCard.inputs[c.to.itemName]||0));
+            });
+            state.placedCards.forEach(c => Object.keys(c.inputs).forEach(n => sup.set(`${c.id}:${n}`, 0)));
+            state.connections.forEach(c => {
+                const sOut = effOuts.get(c.from.cardId);
+                if(sOut) {
+                    const req = state.placedCards.get(c.to.cardId)?.inputs[c.to.itemName]||0;
+                    let s = req; const ts = sOut[c.from.itemName]||0, td = dem.get(`${c.from.cardId}:${c.from.itemName}`)||1;
+                    if(ts < td) s = req * (ts / td);
+                    sup.set(`${c.to.cardId}:${c.to.itemName}`, (sup.get(`${c.to.cardId}:${c.to.itemName}`)||0) + s);
+                }
+            });
+
+            state.connections.forEach(c => c.isDeficit = false);
+            state.placedCards.forEach(c => c.inputDeficits.clear());
+
+            state.placedCards.forEach(c => {
+                let eff = 1;
+                Object.entries(c.inputs).forEach(([n, r]) => {
+                    const s = sup.get(`${c.id}:${n}`)||0;
+                    if(r > 0) { const iEff = s/r; if(iEff < eff) eff = iEff; }
+                    if(s < r - 0.001) {
+                        c.inputDeficits.add(n);
+                        state.connections.forEach(conn => { if(conn.to.cardId===c.id && conn.to.itemName===n) conn.isDeficit = true; });
+                    }
+                });
+
+                // Input Labels Update
+                c.element.querySelectorAll('.io-item[data-input-name]').forEach(el => {
+                    const n = el.dataset.inputName; const rateEl = el.querySelector('.rate-input');
+                    if (!rateEl) return;
+                    
+                    const tgt = c.inputs[n] || 0;
+                    
+                    if (document.activeElement !== rateEl) {
+                        rateEl.value = tgt.toFixed(2);
+                    }
+
+                    if(c.inputDeficits.has(n)) { 
+                        rateEl.classList.add('text-red-400'); rateEl.classList.remove('text-orange-400'); 
+                    } else { 
+                        rateEl.classList.remove('text-red-400'); rateEl.classList.add('text-orange-400'); 
+                    }
+                });
+
+                // Output Labels Update
+                c.element.querySelectorAll('.io-item[data-output-name]').forEach(el => {
+                    const n = el.dataset.outputName; 
+                    const rateEl = el.querySelector('.rate-input');
+                    
+                    if (rateEl && document.activeElement !== rateEl) {
+                        const tgt = c.outputs[n]||0; 
+                        rateEl.value = tgt.toFixed(2); 
+                        
+                        if(eff < 0.999) { 
+                            rateEl.classList.add('text-red-400'); rateEl.classList.remove('text-green-400'); 
+                        } else { 
+                            rateEl.classList.remove('text-red-400'); rateEl.classList.add('text-green-400'); 
+                        }
+                    }
+                });
+            });
+            renderConnections();
+        }
+
+        function renderConnections() {
+            dom.svgGroup.innerHTML = '';
+            state.connections.forEach((conn, id) => {
+                const fN = document.querySelector(`#${conn.from.cardId} [data-item-name="${conn.from.itemName}"][data-type="output"]`);
+                const tN = document.querySelector(`#${conn.to.cardId} [data-item-name="${conn.to.itemName}"][data-type="input"]`);
+                if(!fN || !tN) return;
+                const p1 = getNodeWorldPos(fN), p2 = getNodeWorldPos(tN);
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                let cls = 'connection-line';
+                if(conn.isDeficit) cls += ' deficit';
+                if(state.selectedConnectionIds.has(id)) cls += ' selected';
+                line.setAttribute('class', cls); line.dataset.connId = id;
+                const dx = Math.abs(p2.x - p1.x) * 0.5;
+                line.setAttribute('d', `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`);
+                dom.svgGroup.appendChild(line);
+            });
+            if(state.pastePreview) dom.svgGroup.appendChild(dom.pastePreviewContainer);
+        }
+
+        function renderHighlights() {
+            state.placedCards.forEach((c,id) => {
+                c.element.classList.toggle('selected', state.selectedCardIds.has(id));
+                if(c.toggleScrolling) c.toggleScrolling();
+            });
+        }
+
+        function renderViewport() {
+            const { x, y, zoom } = state.viewport;
+            dom.canvasContent.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
+            dom.svgGroup.style.transform = `translate(${x}px, ${y}px) scale(${zoom})`;
+            dom.canvasGrid.style.backgroundPosition = `${x}px ${y}px`;
+            dom.canvasGrid.style.backgroundSize = `${state.gridSize * zoom}px ${state.gridSize * zoom}px`;
+        }
+
+        function renderSummary() {
+            const prod = new Map(), cons = new Map();
+            let pwrProd = 0, pwrCons = 0, bldgs = 0;
+            state.placedCards.forEach(c => {
+                bldgs += c.buildings;
+                if(c.building === 'Alien Power Augmenter') {
+                    pwrProd += 500 * c.buildings; 
+                    return;
+                }
+                Object.entries(c.outputs).forEach(([n,v])=>prod.set(n, (prod.get(n)||0)+v));
+                Object.entries(c.inputs).forEach(([n,v])=>cons.set(n, (cons.get(n)||0)+v));
+                if(c.power > 0) pwrProd += c.power; else pwrCons += Math.abs(c.power);
+            });
+
+            const raws = [], nets = [];
+            const EXTRACTORS = ['Miner Mk.1','Miner Mk.2','Miner Mk.3','Water Extractor','Oil Extractor','Resource Well Extractor'];
+            const isRaw = (item) => [...state.buildingsMap.values()].filter(b=>EXTRACTORS.includes(b.name)).some(b=>state.recipeData.recipes[b.name]?.some(r=>r.outputs[item]));
+            
+            new Set([...prod.keys(), ...cons.keys()]).forEach(item => {
+                const p = prod.get(item)||0, c = cons.get(item)||0, net = p - c;
+                if(isRaw(item) && c > 0.01) raws.push(`${item}: ${c.toFixed(1)}`);
+                if(net > 0.01) nets.push(`${item}: ${net.toFixed(1)}`);
+            });
+
+            document.getElementById('hdr-inputs').textContent = raws.length ? raws.join(' | ') : 'None';
+            document.getElementById('hdr-outputs').textContent = nets.length ? nets.join(' | ') : 'None';
+            document.getElementById('hdr-power').textContent = Math.round(pwrProd - pwrCons);
+
+            let lHTML = `
+                <div class="bg-gray-900 rounded p-2 border border-gray-700 mb-2">
+                    <p class="text-cyan-400 font-bold mb-1">Power Balance</p>
+                    <div class="flex justify-between"><span class="text-gray-400">Produced:</span><span class="text-white">${pwrProd.toFixed(1)} MW</span></div>
+                    <div class="flex justify-between"><span class="text-gray-400">Consumed:</span><span class="text-white">${pwrCons.toFixed(1)} MW</span></div>
+                    <div class="flex justify-between font-bold mt-1 pt-1 border-t border-gray-700"><span class="text-gray-400">Net:</span><span class="${pwrProd-pwrCons >= 0 ? 'text-green-400':'text-red-400'}">${(pwrProd-pwrCons).toFixed(1)} MW</span></div>
+                </div>
+                <div class="bg-gray-900 rounded p-2 border border-gray-700">
+                    <p class="text-purple-400 font-bold mb-2">Item Ledger</p>
+                    ${[...new Set([...prod.keys(), ...cons.keys()])].sort().map(item => {
+                        const net = (prod.get(item)||0) - (cons.get(item)||0);
+                        if (Math.abs(net) < 0.01 && (prod.get(item)||0) === 0) return '';
+                        return `<div class="flex justify-between border-b border-gray-700/50 py-1"><span class="text-gray-300 truncate w-1/2">${item}</span><span class="font-mono ${net>0.01?'text-green-400':net<-0.01?'text-red-400':'text-gray-500'}">${net.toFixed(1)}</span></div>`;
+                    }).join('')}
+                </div>
+            `;
+            dom.summaryContent.innerHTML = bldgs > 0 ? lHTML : '<div class="text-center text-gray-500 py-4">Add buildings to see summary.</div>';
+        }
+
+        // ==========================================
+        // AUTO-BUILD, BALANCE, & LAYOUT
+        // ==========================================
+        function getConnectedSet(startId) {
+            const set = new Set([startId]), q = [startId];
+            while(q.length > 0) {
+                const cur = q.shift();
+                state.connections.forEach(c => {
+                    const n = c.from.cardId === cur ? c.to.cardId : (c.to.cardId === cur ? c.from.cardId : null);
+                    if (n && !set.has(n)) { set.add(n); q.push(n); }
+                });
+            }
+            return set;
+        }
+
+        function autoBuildInputsForCard(targetCardId, config) {
+            let iterations = 0;
+            let changed = true;
+            
+            while(changed && iterations < 30) {
+                changed = false;
+                iterations++;
+                
+                const chain = getConnectedSet(targetCardId);
+                const defs = new Map();
+                
+                calculateAndRenderNetworkStatus();
+                
+                state.placedCards.forEach(c => {
+                    if (chain.has(c.id)) {
+                        c.inputDeficits.forEach(n => {
+                            const required = c.inputs[n] || 0;
+                            let supplied = 0;
+                            state.connections.forEach(conn => {
+                                if (conn.to.cardId === c.id && conn.to.itemName === n) {
+                                    const p = state.placedCards.get(conn.from.cardId);
+                                    if(p) supplied += p.outputs[conn.from.itemName] || 0;
+                                }
+                            });
+                            const deficit = required - supplied;
+                            if (deficit > 0.01) {
+                                if (!defs.has(n)) defs.set(n, []);
+                                defs.get(n).push({id: c.id, req: deficit});
+                            }
+                        });
+                    }
+                });
+
+                if (defs.size === 0) break;
+                
+                let offsetY = 0;
+                const tCard = state.placedCards.get(targetCardId);
+
+                defs.forEach((consumers, item) => {
+                    let bestRec = null, bestBldg = null;
+                    let minCost = Infinity;
+
+                    for(const [b, recs] of Object.entries(state.recipeData.recipes)) {
+                        if(b==='Special') continue;
+                        const valid = recs.filter(r => r.outputs[item] && 
+                                                 (r.isAlternate ? config.useAlts && state.unlockedRecipes.has(`${b}|${r.name}`) : true) && 
+                                                 (!config.useSAM ? !Object.keys(r.inputs || {}).some(i=>i.includes('SAM')) : true));
+                        
+                        valid.forEach(r => {
+                            let cost = Object.keys(r.inputs || {}).length;
+                            if (config.buildStrategy === 'resourceSaver' && r.isAlternate) cost -= 2; 
+                            if (cost < minCost) { minCost = cost; bestRec = r; bestBldg = b; }
+                        });
+                    }
+
+                    if(bestRec && bestBldg) {
+                        const tReq = consumers.reduce((sum,c)=>sum+c.req,0);
+                        const bRate = bestRec.outputs[item];
+                        const nb = Math.ceil(tReq/bRate);
+                        const nc = (tReq/(bRate*nb))*100;
+                        
+                        const nx = tCard.x - 500; 
+                        const ny = tCard.y + (offsetY * 400); offsetY++;
+                        
+                        const newC = createCard(bestBldg, bestRec, nx, ny, null, {
+                            buildings: nb, 
+                            powerShard: Math.min(250,Math.max(0.1,nc)),
+                            syncId: tCard.syncId, 
+                            syncColor: tCard.syncColor
+                        });
+                        
+                        consumers.forEach(cons => {
+                            state.connections.set(`conn-${state.nextConnectionId++}`, { from: {cardId: newC.id, itemName: item}, to: {cardId: cons.id, itemName: item}});
+                        });
+                        changed = true;
+                    }
+                });
+            }
+            updateAllCalculations();
+            groupedArrangeLayout(state.placedCards.get(targetCardId));
+        }
+
+        // --- Auto Arrange Logic ---
+        function groupedArrangeLayout(anchorCard) {
+            const chain = getConnectedSet(anchorCard.id);
+            const { layers } = assignLayers(chain);
+            let aIdx = 0; layers.forEach((l,i) => { if(l.includes(anchorCard.id)) aIdx = i; });
+            
+            layers.forEach((layer, lIdx) => {
+                const xPos = anchorCard.x + (lIdx - aIdx) * 500;
+                layer.forEach((cId, cIdx) => {
+                    const yPos = anchorCard.y + (cIdx - (layer.length - 1) / 2) * 400; // Centered
+                    const c = state.placedCards.get(cId);
+                    if(c) {
+                        c.x = Math.round(xPos/state.gridSize)*state.gridSize;
+                        c.y = Math.round(yPos/state.gridSize)*state.gridSize;
+                        c.element.style.transform = `translate(${c.x}px, ${c.y}px)`;
+                    }
+                });
+            });
+            renderConnections();
+        }
+
+        function assignLayers(cardIds) {
+            const layers = [], unplaced = new Set(cardIds), preds = new Map();
+            cardIds.forEach(id => preds.set(id, new Set()));
+            state.connections.forEach(c => { if(cardIds.has(c.from.cardId) && cardIds.has(c.to.cardId)) preds.get(c.to.cardId).add(c.from.cardId); });
+            
+            let rank = 0;
+            while(unplaced.size > 0) {
+                const p = [];
+                for(const id of unplaced) { let cp = true; for(const pred of preds.get(id)) if(unplaced.has(pred)) cp=false; if(cp) p.push(id); }
+                if(p.length===0 && unplaced.size>0) p.push(unplaced.values().next().value); 
+                layers[rank] = p;
+                p.forEach(id => unplaced.delete(id));
+                rank++;
+            }
+            return { layers };
+        }
+
+        // --- Auto Balance Logic ---
+        function autoBalanceChain(startCard, config) {
+            const chain = getConnectedSet(startCard.id);
+            if(config.clearLoops) chain.forEach(id => { const c=state.placedCards.get(id); if(c && !c.isLocked) c.somersloops=0; });
+            
+            const sorted = [], inDeg = new Map(), adj = new Map();
+            chain.forEach(id => { inDeg.set(id,0); adj.set(id,[]); });
+            state.connections.forEach(c => {
+                if(chain.has(c.from.cardId) && chain.has(c.to.cardId)) { adj.get(c.from.cardId).push(c.to.cardId); inDeg.set(c.to.cardId, inDeg.get(c.to.cardId)+1); }
+            });
+            const q = []; chain.forEach(id => { if(inDeg.get(id)===0) q.push(id); });
+            while(q.length) { const u = q.shift(); sorted.push(u); adj.get(u).forEach(v => { inDeg.set(v, inDeg.get(v)-1); if(inDeg.get(v)===0) q.push(v); });}
+            
+            const temp = new Map(); chain.forEach(id => { const c=state.placedCards.get(id); temp.set(id, {...c, inputs:{...c.inputs}, outputs:{...c.outputs}}); });
+
+            [...sorted].reverse().forEach(id => {
+                const c = temp.get(id); if(!c || c.isLocked) return;
+                let maxReqClk = 0;
+                for (const oName in c.recipe.outputs) {
+                    let tDem = 0, isFinal = true;
+                    const cons = []; state.connections.forEach(conn => { if(conn.from.cardId===id && conn.from.itemName===oName && chain.has(conn.to.cardId)) { cons.push(conn.to); isFinal=false;} });
+                    cons.forEach(endpoint => {
+                        const consumer = temp.get(endpoint.cardId); const req = consumer.inputs[endpoint.itemName]||0;
+                        let tSupCount = 0; state.connections.forEach(conn => { if(conn.to.cardId===endpoint.cardId && conn.to.itemName===endpoint.itemName && chain.has(conn.from.cardId)) tSupCount++; });
+                        if(tSupCount>0) tDem += req/tSupCount;
+                    });
+                    if(isFinal) tDem = c.outputs[oName];
+                    const bRate = c.recipe.outputs[oName];
+                    if(bRate>0 && tDem>0) maxReqClk = Math.max(maxReqClk, (tDem/bRate)*100);
+                }
+                
+                if(maxReqClk>0) {
+                    const isExt = state.buildingsMap.get(c.building)?.category === 'Extraction';
+                    let nb = c.buildings, nc = maxReqClk/nb;
+                    if(config.balanceStrategy === 'shardsFirst' && !isExt) { nb = Math.ceil(maxReqClk/250); nc = maxReqClk/nb; }
+                    else if(nc > 100 && !isExt) { nb = Math.ceil(maxReqClk/100); nc = maxReqClk/nb; }
+                    if(isExt) { nb = Math.ceil(maxReqClk/100); nc = 100; }
+                    nc = Math.min(250, Math.max(0.1, nc));
+                    
+                    c.buildings = nb; c.powerShard = nc; c.powerShards = nc>200?3:nc>150?2:nc>100?1:0;
+                    const mult = (nc/100) * (SOMERSLOOP_SLOTS[c.building]>0 ? (1+c.somersloops/SOMERSLOOP_SLOTS[c.building]) : 1);
+                    for(const i in c.recipe.inputs) c.inputs[i] = c.recipe.inputs[i]* (nc/100) * nb;
+                    for(const o in c.recipe.outputs) c.outputs[o] = c.recipe.outputs[o] * mult * nb;
+                }
+            });
+
+            temp.forEach((v,k) => {
+                const act = state.placedCards.get(k);
+                if(act && !act.isLocked) { act.buildings=v.buildings; act.powerShard=v.powerShard; act.powerShards=v.powerShards; }
+                if(act && !act.isLocked) {
+                    const bIn = act.element.querySelector('.inline-input:nth-child(2)'); if(bIn) bIn.value = v.buildings;
+                    const cIn = act.element.querySelectorAll('.inline-input')[1]; if(cIn) cIn.value = v.powerShard.toFixed(2);
+                }
+            });
+            updateAllCalculations();
+        }
+
+        // ==========================================
+        // IMPORT/EXPORT BLUEPRINTS
+        // ==========================================
+        document.getElementById('btn-export-bp').onclick = () => {
+            const bp = {
+                cards: Array.from(state.placedCards.values()).map(c=>({id:c.id, x:c.x, y:c.y, building:c.building, recipeName:c.recipe.name, config:{buildings:c.buildings, powerShard:c.powerShard, somersloops:c.somersloops, isFueled:c.isFueled, isLocked:c.isLocked, syncId:c.syncId, syncColor:c.syncColor}})),
+                connections: Array.from(state.connections.entries()).map(([k,v])=>({id:k, from:v.from, to:v.to})),
+                unlockedRecipes: Array.from(state.unlockedRecipes), nextCardId: state.nextCardId, nextConnectionId: state.nextConnectionId, syncGroupCounter: state.syncGroupCounter
+            };
+            const a = document.createElement('a');
+            a.href = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(bp));
+            a.download = "factory_bp.json"; a.click();
+        };
+
+        document.getElementById('btn-import-bp').onclick = () => document.getElementById('file-import-bp').click();
+        document.getElementById('file-import-bp').onchange = async e => {
+            if(!e.target.files[0]) return;
+            try {
+                pendingImport = JSON.parse(await e.target.files[0].text());
+                dom.importBpModal.classList.remove('hidden');
+            } catch(err) { 
+                console.error("Import failed:", err); 
+                showToast("Invalid Blueprint File"); 
+            }
+            e.target.value = '';
+        };
+
+        dom.importReplace.onclick = () => {
+            if (!pendingImport) return;
+            const bp = pendingImport;
+            dom.canvasContent.innerHTML = ''; dom.svgGroup.innerHTML = '';
+            state.placedCards.clear(); state.connections.clear();
+            state.nextCardId = bp.nextCardId || 1000; state.nextConnectionId = bp.nextConnectionId || 1000;
+            state.syncGroupCounter = bp.syncGroupCounter || 100;
+            if(bp.unlockedRecipes) state.unlockedRecipes = new Set(bp.unlockedRecipes);
+            
+            bp.cards.forEach(c => {
+                const r = state.recipeData.recipes[c.building]?.find(x=>x.name===c.recipeName) || (c.building==='Alien Power Augmenter'?{name:c.recipeName, inputs:{}, outputs:{}}:null);
+                if(r) createCard(c.building, r, c.x, c.y, c.id, c.config);
+            });
+            bp.connections.forEach(c => state.connections.set(c.id, {from:c.from, to:c.to}));
+            
+            populateConfig();
+            updateAllCalculations();
+            
+            dom.importBpModal.classList.add('hidden');
+            pendingImport = null;
+            showToast("Factory Replaced");
+        };
+
+        dom.importPaste.onclick = () => {
+            if (!pendingImport || !pendingImport.cards || pendingImport.cards.length === 0) {
+                dom.importBpModal.classList.add('hidden');
+                pendingImport = null;
+                return;
+            }
+            
+            let minX = Infinity, minY = Infinity;
+            pendingImport.cards.forEach(c => {
+                minX = Math.min(minX, c.x);
+                minY = Math.min(minY, c.y);
+            });
+            
+            const bulkSyncBase = `sync-bp-${Date.now()}`;
+
+            state.clipboard = {
+                cards: pendingImport.cards.map(c => {
+                    const r = state.recipeData.recipes[c.building]?.find(x=>x.name===c.recipeName) || (c.building==='Alien Power Augmenter'?{name:c.recipeName, inputs:{}, outputs:{}}:null);
+                    const config = {...c.config};
+                    if(config.syncId) config.syncId = `${bulkSyncBase}-${config.syncId}`; 
+                    return { building: c.building, recipe: r, dx: c.x - minX, dy: c.y - minY, config: config, oldId: c.id };
+                }),
+                connections: pendingImport.connections.map(c => ({from: {...c.from}, to: {...c.to}}))
+            };
+            
+            dom.importBpModal.classList.add('hidden');
+            pendingImport = null;
+            triggerPastePreview();
+        };
+
+        dom.cancelImport.onclick = () => {
+            dom.importBpModal.classList.add('hidden');
+            pendingImport = null;
+        };
+
+    </script>
+</body>
+</html>
