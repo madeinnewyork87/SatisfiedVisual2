@@ -26,6 +26,9 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #6b7280; }
+        
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
         /* Canvas & Grid - Absolute positioning to prevent grey borders */
         #canvas-container { position: absolute; inset: 0; overflow: hidden; cursor: default; z-index: 10; }
@@ -50,7 +53,7 @@
         .io-container-wrapper { flex: 1; display: flex; gap: 0.5rem; min-height: 0; min-width: 0; margin-top: 0.25rem; }
         .io-col { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
         .io-list { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 6px; margin: 0 -6px; display: flex; flex-direction: column; gap: 4px; }
-        .io-item { min-width: 0; } /* Prevents flex blowout */
+        .io-item { min-width: 0; }
 
         /* Smooth Scrolling Text */
         .name-wrapper { flex: 1; min-width: 0; overflow: hidden; position: relative; padding-right: 8px; display: flex; align-items: center; }
@@ -78,7 +81,7 @@
             outline: none; font-weight: bold; width: 100%;
         }
         
-        /* Rate Box Container - Rigid Width */
+        /* Rate Box Container */
         .rate-container { flex-shrink: 0; width: 85px; }
         .rate-input {
             background: transparent; border: none; color: inherit; text-align: right; width: 100%; font-weight: bold; cursor: text;
@@ -126,14 +129,19 @@
     <!-- STARTUP SCREEN -->
     <div id="startup-screen" class="fixed inset-0 z-50 bg-gray-900 flex items-center justify-center">
         <div class="bg-gray-800 p-8 rounded-lg shadow-2xl border border-gray-700 text-center max-w-md w-full">
-            <svg class="w-16 h-16 text-indigo-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 002-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+            <svg id="startup-spinner" class="w-16 h-16 text-indigo-500 mx-auto mb-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
             <h1 class="text-2xl font-bold text-white mb-2">Satisfied Visual Planner</h1>
-            <p class="text-gray-400 text-sm mb-6">A fully standalone factory planner. To begin, please import your recipes.js file.</p>
-            <button id="btn-startup-import" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded shadow-lg transition-colors flex justify-center items-center gap-2">
-                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
-                Load recipes.js
-            </button>
-            <input type="file" id="file-startup-import" class="hidden" accept=".js,.json,text/javascript">
+            <p id="startup-status" class="text-gray-400 text-sm mb-6">Fetching default recipes.js...</p>
+            
+            <div id="startup-fallback" class="hidden">
+                <button id="btn-startup-import" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded shadow-lg transition-colors flex justify-center items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                    Load local recipes.js
+                </button>
+                <input type="file" id="file-startup-import" class="hidden" accept=".js,.json,text/javascript">
+            </div>
             <p id="startup-error" class="text-red-400 text-xs mt-4 hidden">Invalid file format.</p>
         </div>
     </div>
@@ -149,25 +157,33 @@
                 <h1 class="text-lg font-bold text-white tracking-tight">Satisfied</h1>
             </div>
             
-            <div class="flex-1 flex justify-center items-center gap-4 text-xs">
-                <div class="bg-gray-900 px-3 py-1.5 rounded border border-gray-700 flex gap-4 items-center">
-                    <span class="font-bold text-orange-400">Inputs:</span>
-                    <div id="hdr-inputs" class="flex gap-3 text-gray-300 max-w-[200px] overflow-hidden whitespace-nowrap">None</div>
+            <div class="flex-1 flex justify-center items-center gap-4 text-xs min-w-0">
+                <div class="bg-gray-900 px-3 py-1.5 rounded border border-gray-700 flex gap-3 items-center flex-1 min-w-0 max-w-[400px]">
+                    <span class="font-bold text-orange-400 shrink-0">Inputs:</span>
+                    <div id="hdr-inputs" class="flex gap-3 text-gray-300 overflow-x-auto no-scrollbar whitespace-nowrap w-full">None</div>
                 </div>
-                <div class="bg-gray-900 px-3 py-1.5 rounded border border-gray-700 flex gap-4 items-center">
-                    <span class="font-bold text-green-400">Outputs:</span>
-                    <div id="hdr-outputs" class="flex gap-3 text-gray-300 max-w-[200px] overflow-hidden whitespace-nowrap">None</div>
+                <div class="bg-gray-900 px-3 py-1.5 rounded border border-gray-700 flex gap-3 items-center flex-1 min-w-0 max-w-[400px]">
+                    <span class="font-bold text-green-400 shrink-0">Outputs:</span>
+                    <div id="hdr-outputs" class="flex gap-3 text-gray-300 overflow-x-auto no-scrollbar whitespace-nowrap w-full">None</div>
                 </div>
-                <div class="bg-gray-900 px-3 py-1.5 rounded border border-gray-700 font-bold text-base">
+                <div class="bg-gray-900 px-3 py-1.5 rounded border border-gray-700 font-bold text-base shrink-0">
                     <span id="hdr-power" class="text-white">0</span> <span class="text-cyan-400 text-xs">MW</span>
                 </div>
             </div>
 
             <div class="flex items-center gap-2">
+                <a href="https://madeinnewyork87.github.io/SatisfiedVisual2/SatisfiedRecipeEditor.html" target="_blank" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 px-3 text-xs rounded transition-colors flex items-center gap-1" title="Open Recipe Editor">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                    Recipe Editor
+                </a>
                 <button id="btn-export-bp" class="bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-1.5 px-3 text-xs rounded">Export BP</button>
                 <button id="btn-import-bp" class="bg-gray-700 hover:bg-gray-600 text-white font-bold py-1.5 px-3 text-xs rounded">Import BP</button>
                 <input type="file" id="file-import-bp" class="hidden" accept=".json">
                 <button id="btn-toggle-right" class="bg-purple-600 hover:bg-purple-500 text-white font-bold py-1.5 px-3 text-xs rounded">Summary</button>
+                <a href="https://buymeacoffee.com/shinjuku1" target="_blank" class="bg-yellow-500 hover:bg-yellow-400 text-black font-bold py-1.5 px-3 text-xs rounded transition-colors flex items-center gap-1" title="Support the Project">
+                    <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path d="M8 9.5A1.5 1.5 0 106.5 8 1.5 1.5 0 008 9.5zM11.5 8a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/><path d="M2.368 1.623a.5.5 0 01.52-.323l14.28.006a.5.5 0 01.488.63l-1.393 5.438a.5.5 0 01-.488.369H4.156a.5.5 0 01-.488-.63L2.368 1.623zM2.81 8.614a1.5 1.5 0 01-1.488-.63L0 1.623a1.5 1.5 0 011.56-1.3l14.28.005a1.5 1.5 0 011.464 1.891l-1.393 5.438a1.5 1.5 0 01-1.464 1.108H4.32a1.5 1.5 0 01-1.51-1.074zM16 11.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 012 11.5V10h14v1.5z"/></svg>
+                    Donate
+                </a>
             </div>
         </header>
 
@@ -210,6 +226,14 @@
 
             <!-- Config Panel -->
             <div id="panel-config" class="flex-1 overflow-y-auto p-3 hidden space-y-5">
+                <div class="border-b border-gray-700 pb-4">
+                    <h3 class="text-xs font-bold text-indigo-400 mb-2 uppercase">Recipe Data</h3>
+                    <button id="btn-config-import" class="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-1.5 px-3 text-xs rounded transition-colors flex items-center justify-center gap-2">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                        Load Custom recipes.js
+                    </button>
+                    <input type="file" id="file-config-import" class="hidden" accept=".js,.json,text/javascript">
+                </div>
                 <div>
                     <h3 class="text-xs font-bold text-indigo-400 mb-2 uppercase">Default Strategy</h3>
                     <select id="cfg-build-strat" class="w-full bg-gray-700 text-xs text-white p-1.5 rounded border border-gray-600">
@@ -324,6 +348,9 @@
         const dom = {
             appUi: document.getElementById('app-ui'), startupScreen: document.getElementById('startup-screen'),
             fileStartup: document.getElementById('file-startup-import'), btnStartup: document.getElementById('btn-startup-import'),
+            startupFallback: document.getElementById('startup-fallback'), startupStatus: document.getElementById('startup-status'),
+            startupSpinner: document.getElementById('startup-spinner'),
+            btnConfigImport: document.getElementById('btn-config-import'), fileConfigImport: document.getElementById('file-config-import'),
             canvasContainer: document.getElementById('canvas-container'), canvasGrid: document.getElementById('canvas-grid'),
             canvasContent: document.getElementById('canvas-content'), svgGroup: document.getElementById('connector-svg'),
             pastePreviewContainer: document.getElementById('paste-preview-container'),
@@ -342,24 +369,61 @@
         // ==========================================
         // STARTUP & DATA LOAD
         // ==========================================
-        dom.btnStartup.addEventListener('click', () => dom.fileStartup.click());
-        dom.fileStartup.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+        const DEFAULT_RECIPE_URL = "https://madeinnewyork87.github.io/SatisfiedVisual2/recipes.js";
+        let hasInitialized = false;
+
+        async function fetchDefaultRecipes() {
             try {
-                const text = await file.text();
+                const response = await fetch(DEFAULT_RECIPE_URL);
+                if (!response.ok) throw new Error("Network response not ok");
+                const text = await response.text();
+                loadRecipesFromText(text);
+            } catch (err) {
+                console.error("Failed to load default recipes:", err);
+                dom.startupStatus.textContent = "Failed to fetch remote recipes. Please load a local file.";
+                if(dom.startupSpinner) dom.startupSpinner.classList.remove('animate-spin');
+                if(dom.startupFallback) dom.startupFallback.classList.remove('hidden');
+            }
+        }
+
+        function loadRecipesFromText(text) {
+            try {
                 const jsonLike = text.replace(/[\s\S]*?export\s+(?:const|let|var)\s+\w+\s*=\s*/, '').replace(/;?\s*$/, '');
                 const parsed = new Function(`return (${jsonLike})`)();
                 
                 if (parsed && parsed.buildings && parsed.recipes) {
                     state.recipeData = parsed;
+                    state.buildingsMap.clear();
                     parsed.buildings.forEach(b => state.buildingsMap.set(b.name, b));
                     initApp();
                 } else throw new Error("Invalid structure");
             } catch (err) {
                 console.error(err);
-                document.getElementById('startup-error').classList.remove('hidden');
+                if (!dom.startupScreen.classList.contains('hidden')) {
+                    document.getElementById('startup-error').classList.remove('hidden');
+                } else {
+                    showToast("Invalid recipe file format.");
+                }
             }
+        }
+
+        dom.btnStartup.addEventListener('click', () => dom.fileStartup.click());
+        dom.fileStartup.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const text = await file.text();
+            loadRecipesFromText(text);
+            e.target.value = '';
+        });
+
+        dom.btnConfigImport.addEventListener('click', () => dom.fileConfigImport.click());
+        dom.fileConfigImport.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const text = await file.text();
+            loadRecipesFromText(text);
+            showToast("Custom recipes loaded.");
+            e.target.value = '';
         });
 
         function initApp() {
@@ -371,9 +435,18 @@
             });
             populateLibrary();
             populateConfig();
-            setupEventListeners();
+            
+            if (!hasInitialized) {
+                setupEventListeners();
+                hasInitialized = true;
+            }
+            
+            updateAllCalculations();
             renderViewport();
         }
+
+        // Kick off fetch on load
+        fetchDefaultRecipes();
 
         // ==========================================
         // CORE UTILS
@@ -513,7 +586,7 @@
                 </div>
 
                 <div class="rate-container bg-gray-900/90 rounded px-1.5 py-1 z-10 border border-gray-700 focus-within:border-indigo-400 transition-colors flex items-center">
-                    <input type="number" class="rate-input ${type==='input' ? 'text-orange-400' : 'text-green-400'}" data-target-${type}="${name}" data-type="${type}" value="${tgtVal.toFixed(2)}" title="${type==='output' ? 'Click to edit target rate' : ''}">
+                    <input type="number" class="rate-input ${type==='input' ? 'text-orange-400' : 'text-green-400'}" data-target-${type}="${name}" data-type="${type}" value="${tgtVal.toFixed(2)}" title="Click to edit target rate">
                 </div>
                        
                 ${type==='output' ? `<div class="connector-node output" data-type="output" data-item-name="${name}"></div>` : ''}
@@ -610,7 +683,7 @@
                         </div>
                         <div class="flex items-center bg-gray-900/80 rounded px-2 py-1 border border-gray-600 focus-within:border-yellow-400 transition-colors" title="Clock Speed">
                             <svg class="w-3.5 h-3.5 text-yellow-500 mr-1" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A1 1 0 0112 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clip-rule="evenodd" /></svg>
-                            <input type="number" class="inline-input input-clock w-12 font-bold text-[12px]" data-edit-type="clock" value="${cData.powerShard}" min="0.1" max="250" step="0.1">
+                            <input type="number" class="inline-input input-clock w-14 font-bold text-[12px]" data-edit-type="clock" value="${Number.isInteger(cData.powerShard) ? cData.powerShard : cData.powerShard.toFixed(4)}" min="0.1" max="250" step="0.0001">
                             <span class="text-gray-500 text-[10px] ml-0.5">%</span>
                         </div>
                         ${sSlots > 0 ? `
@@ -704,7 +777,6 @@
             valDisplay.textContent = inputEl.value;
             maxDisplay.textContent = isInt ? max.toString() : max.toFixed(0);
             
-            // Live trigger whole factory calculations and Sync cascading
             slider.oninput = (e) => { 
                 const val = parseFloat(e.target.value);
                 const displayVal = isInt ? Math.round(val).toString() : val.toFixed(2);
@@ -728,7 +800,6 @@
             const sFuel = el.querySelector('.fuel-select');
 
             const applyEdits = () => {
-                // Calculate old absolute power/capacity multiplier before applying changes
                 const oldFactor = cData.buildings * (cData.powerShard / 100);
 
                 if(iBldgs) cData.buildings = Math.max(1, parseInt(iBldgs.value)||1);
@@ -738,8 +809,7 @@
                 
                 const newFactor = cData.buildings * (cData.powerShard / 100);
 
-                // --- LIVE SYNC CHAIN SCALING LOGIC ---
-                if (cData.syncId && oldFactor > 0 && Math.abs(newFactor - oldFactor) > 0.001) {
+                if (cData.syncId && oldFactor > 0 && Math.abs(newFactor - oldFactor) > 0.0001) {
                     const ratio = newFactor / oldFactor;
                     
                     state.placedCards.forEach(c => {
@@ -750,7 +820,6 @@
                             let nb = c.buildings;
                             let nc = (cNewFactor / nb) * 100;
 
-                            // Auto-adjust building counts if clock goes out of bounds
                             if (nc > 250) {
                                 nb = Math.ceil(cNewFactor / 2.5);
                                 nc = (cNewFactor / nb) * 100;
@@ -762,11 +831,10 @@
                             c.buildings = Math.max(1, nb);
                             c.powerShard = Math.min(250, Math.max(0.1, nc));
                             
-                            // Immediately update DOM inputs so sliders dragging feels real-time
                             const bIn = c.element.querySelector('.input-bldgs'); 
                             const cIn = c.element.querySelector('.input-clock');
                             if(bIn && document.activeElement !== bIn) bIn.value = c.buildings;
-                            if(cIn && document.activeElement !== cIn) cIn.value = c.powerShard.toFixed(2);
+                            if(cIn && document.activeElement !== cIn) cIn.value = Number.isInteger(c.powerShard) ? c.powerShard : c.powerShard.toFixed(4);
                         }
                     });
                 }
@@ -803,7 +871,6 @@
                 });
             }
 
-            // Rate Editing triggers proportion math
             el.querySelectorAll('.rate-input').forEach(input => {
                 input.addEventListener('mousedown', e => e.stopPropagation());
                 input.addEventListener('change', e => {
@@ -818,6 +885,8 @@
                     }
                     
                     if (baseRate > 0) {
+                        const oldFactor = cData.buildings * (cData.powerShard / 100);
+
                         let reqClock;
                         if (isInput) {
                             reqClock = (desiredRate / (baseRate * cData.buildings)) * 100;
@@ -826,8 +895,32 @@
                             reqClock = (desiredRate / (baseRate * cData.buildings * sMult)) * 100;
                         }
                         reqClock = Math.min(250, Math.max(0.1, reqClock));
-                        if(iClock) iClock.value = reqClock.toFixed(2);
-                        applyEdits();
+                        cData.powerShard = reqClock;
+                        if(iClock) iClock.value = Number.isInteger(cData.powerShard) ? cData.powerShard : cData.powerShard.toFixed(4);
+                        
+                        const newFactor = cData.buildings * (cData.powerShard / 100);
+
+                        if (cData.syncId && oldFactor > 0 && Math.abs(newFactor - oldFactor) > 0.0001) {
+                            const ratio = newFactor / oldFactor;
+                            state.placedCards.forEach(c => {
+                                if (c.id !== cData.id && c.syncId === cData.syncId && !c.isLocked) {
+                                    const cOldFactor = c.buildings * (c.powerShard / 100);
+                                    const cNewFactor = cOldFactor * ratio;
+                                    let nb = c.buildings;
+                                    let nc = (cNewFactor / nb) * 100;
+                                    if (nc > 250) { nb = Math.ceil(cNewFactor / 2.5); nc = (cNewFactor / nb) * 100; } 
+                                    else if (nc <= 0.1 && cNewFactor > 0) { nb = 1; nc = cNewFactor * 100; }
+                                    c.buildings = Math.max(1, nb);
+                                    c.powerShard = Math.min(250, Math.max(0.1, nc));
+                                    
+                                    const bIn = c.element.querySelector('.input-bldgs'); 
+                                    const cIn = c.element.querySelector('.input-clock');
+                                    if(bIn && document.activeElement !== bIn) bIn.value = c.buildings;
+                                    if(cIn && document.activeElement !== cIn) cIn.value = Number.isInteger(c.powerShard) ? c.powerShard : c.powerShard.toFixed(4);
+                                }
+                            });
+                        }
+                        updateAllCalculations();
                     }
                 });
                 input.addEventListener('focus', e => showPopupSlider(e.target, cData));
@@ -849,7 +942,6 @@
             state.connections.forEach(c => {
                 if (state.selectedCardIds.has(c.from.cardId) && state.selectedCardIds.has(c.to.cardId)) conns.push(c);
             });
-            // Assign a new bulk syncID if there were syncs copied so they don't tether back to the old group
             const bulkSyncBase = `sync-${Date.now()}`;
             
             state.clipboard = {
@@ -947,7 +1039,6 @@
                 if (e.target.closest('.context-menu')) return;
                 dom.contextMenu.innerHTML = '';
                 
-                // Prevent slider interactions from triggering canvas panning/closing
                 if (e.target.closest('#popup-slider-container')) {
                     e.stopPropagation();
                     return;
@@ -964,7 +1055,6 @@
                     return;
                 }
 
-                // 1. Connection Drag Drop start
                 if (e.target.classList.contains('connector-node')) {
                     e.stopPropagation();
                     if (state.isDrawingConnection) { 
@@ -978,7 +1068,6 @@
                     return;
                 }
 
-                // 2. Card Interaction
                 const cardEl = e.target.closest('.placed-card');
                 if (cardEl && e.button === 0 && !e.target.closest('input, select, button')) {
                     e.stopPropagation();
@@ -1006,7 +1095,6 @@
 
                 if (state.isDrawingConnection) { cancelConnectionDrawing(); return; }
 
-                // 3. Canvas Background Interaction
                 if (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey && !e.ctrlKey && !e.metaKey)) {
                     e.preventDefault(); state.panning = true; dom.canvasContainer.style.cursor = 'grabbing';
                 } 
@@ -1306,6 +1394,81 @@
         };
 
         // ==========================================
+        // IMPORT BLUEPRINT MODAL
+        // ==========================================
+        document.getElementById('btn-import-bp').onclick = () => dom.fileImportBp.click();
+        dom.fileImportBp.onchange = async e => {
+            if(!e.target.files[0]) return;
+            try {
+                pendingImport = JSON.parse(await e.target.files[0].text());
+                dom.importBpModal.classList.remove('hidden');
+            } catch(err) { 
+                console.error("Import failed:", err); 
+                showToast("Invalid Blueprint File"); 
+            }
+            e.target.value = '';
+        };
+
+        dom.importReplace.onclick = () => {
+            if (!pendingImport) return;
+            const bp = pendingImport;
+            dom.canvasContent.innerHTML = ''; dom.svgGroup.innerHTML = '';
+            state.placedCards.clear(); state.connections.clear();
+            state.nextCardId = bp.nextCardId || 1000; state.nextConnectionId = bp.nextConnectionId || 1000;
+            state.syncGroupCounter = bp.syncGroupCounter || 100;
+            if(bp.unlockedRecipes) state.unlockedRecipes = new Set(bp.unlockedRecipes);
+            
+            bp.cards.forEach(c => {
+                const r = state.recipeData.recipes[c.building]?.find(x=>x.name===c.recipeName) || (c.building==='Alien Power Augmenter'?{name:c.recipeName, inputs:{}, outputs:{}}:null);
+                if(r) createCard(c.building, r, c.x, c.y, c.id, c.config);
+            });
+            bp.connections.forEach(c => state.connections.set(c.id, {from:c.from, to:c.to}));
+            
+            populateConfig();
+            updateAllCalculations();
+            
+            dom.importBpModal.classList.add('hidden');
+            pendingImport = null;
+            showToast("Factory Replaced");
+        };
+
+        dom.importPaste.onclick = () => {
+            if (!pendingImport || !pendingImport.cards || pendingImport.cards.length === 0) {
+                dom.importBpModal.classList.add('hidden');
+                pendingImport = null;
+                return;
+            }
+            
+            let minX = Infinity, minY = Infinity;
+            pendingImport.cards.forEach(c => {
+                minX = Math.min(minX, c.x);
+                minY = Math.min(minY, c.y);
+            });
+            
+            const bulkSyncBase = `sync-bp-${Date.now()}`;
+
+            state.clipboard = {
+                cards: pendingImport.cards.map(c => {
+                    const r = state.recipeData.recipes[c.building]?.find(x=>x.name===c.recipeName) || (c.building==='Alien Power Augmenter'?{name:c.recipeName, inputs:{}, outputs:{}}:null);
+                    const config = {...c.config};
+                    if(config.syncId) config.syncId = `${bulkSyncBase}-${config.syncId}`; 
+                    return { building: c.building, recipe: r, dx: c.x - minX, dy: c.y - minY, config: config, oldId: c.id };
+                }),
+                connections: pendingImport.connections.map(c => ({from: {...c.from}, to: {...c.to}}))
+            };
+            
+            dom.importBpModal.classList.add('hidden');
+            pendingImport = null;
+            triggerPastePreview();
+        };
+
+        dom.cancelImport.onclick = () => {
+            dom.importBpModal.classList.add('hidden');
+            pendingImport = null;
+        };
+
+
+        // ==========================================
         // CALCULATIONS & UI RENDER
         // ==========================================
         function updateExtractorDemand() {
@@ -1339,17 +1502,17 @@
 
             cData.inputs = {};
             Object.entries(recipe.inputs).forEach(([n, r]) => {
-                cData.inputs[n] = round(r * clock * buildings, 3);
+                cData.inputs[n] = r * clock * buildings; // Exact precision internally
             });
             
             cData.outputs = {};
             Object.entries(recipe.outputs).forEach(([n, r]) => {
-                cData.outputs[n] = round(r * clock * sMult * buildings, 3);
+                cData.outputs[n] = r * clock * sMult * buildings; // Exact precision internally
             });
 
             const bPower = state.buildingsMap.get(building)?.power || 0;
-            if (bPower > 0) cData.power = round(bPower * clock * buildings, 3);
-            else if (bPower < 0) cData.power = round(-(-bPower * Math.pow(clock, 1.321928) * Math.pow(sMult, 2) * buildings), 3);
+            if (bPower > 0) cData.power = bPower * clock * buildings;
+            else if (bPower < 0) cData.power = -(-bPower * Math.pow(clock, 1.321928) * Math.pow(sMult, 2) * buildings);
             else cData.power = 0;
 
             const pel = element.querySelector('[data-value="power"]'); if(pel) pel.textContent = Math.round(cData.power);
@@ -1424,7 +1587,8 @@
                 Object.entries(c.inputs).forEach(([n, r]) => {
                     const s = sup.get(`${c.id}:${n}`)||0;
                     if(r > 0) { const iEff = s/r; if(iEff < eff) eff = iEff; }
-                    if(s < r - 0.001) {
+                    // Strict threshold check to avoid floating point error flags
+                    if(s < r - 0.05) {
                         c.inputDeficits.add(n);
                         state.connections.forEach(conn => { if(conn.to.cardId===c.id && conn.to.itemName===n) conn.isDeficit = true; });
                     }
@@ -1457,7 +1621,7 @@
                         const tgt = c.outputs[n]||0; 
                         rateEl.value = tgt.toFixed(2); 
                         
-                        if(eff < 0.999) { 
+                        if(eff < 0.99) { 
                             rateEl.classList.add('text-red-400'); rateEl.classList.remove('text-green-400'); 
                         } else { 
                             rateEl.classList.remove('text-red-400'); rateEl.classList.add('text-green-400'); 
@@ -1484,7 +1648,6 @@
                 line.setAttribute('d', `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x - dx} ${p2.y}, ${p2.x} ${p2.y}`);
                 dom.svgGroup.appendChild(line);
             });
-            if(state.pastePreview) dom.svgGroup.appendChild(dom.pastePreviewContainer);
         }
 
         function renderHighlights() {
@@ -1520,29 +1683,44 @@
             const EXTRACTORS = ['Miner Mk.1','Miner Mk.2','Miner Mk.3','Water Extractor','Oil Extractor','Resource Well Extractor'];
             const isRaw = (item) => [...state.buildingsMap.values()].filter(b=>EXTRACTORS.includes(b.name)).some(b=>state.recipeData.recipes[b.name]?.some(r=>r.outputs[item]));
             
+            const pProd = parseFloat(pwrProd.toFixed(2));
+            const pCons = parseFloat(pwrCons.toFixed(2));
+            const pNet = pProd - pCons;
+
             new Set([...prod.keys(), ...cons.keys()]).forEach(item => {
                 const p = prod.get(item)||0, c = cons.get(item)||0, net = p - c;
-                if(isRaw(item) && c > 0.01) raws.push(`${item}: ${c.toFixed(1)}`);
-                if(net > 0.01) nets.push(`${item}: ${net.toFixed(1)}`);
+                if(isRaw(item) && c > 0.01) raws.push(`${item}: ${c.toFixed(2)}`);
+                if(net > 0.01) nets.push(`${item}: ${net.toFixed(2)}`);
             });
 
-            document.getElementById('hdr-inputs').textContent = raws.length ? raws.join(' | ') : 'None';
+            const inputsEl = document.getElementById('hdr-inputs');
+            inputsEl.textContent = raws.length ? raws.join(' | ') : 'None';
+            
             document.getElementById('hdr-outputs').textContent = nets.length ? nets.join(' | ') : 'None';
-            document.getElementById('hdr-power').textContent = Math.round(pwrProd - pwrCons);
+            document.getElementById('hdr-power').textContent = Math.round(pNet);
 
             let lHTML = `
                 <div class="bg-gray-900 rounded p-2 border border-gray-700 mb-2">
                     <p class="text-cyan-400 font-bold mb-1">Power Balance</p>
-                    <div class="flex justify-between"><span class="text-gray-400">Produced:</span><span class="text-white">${pwrProd.toFixed(1)} MW</span></div>
-                    <div class="flex justify-between"><span class="text-gray-400">Consumed:</span><span class="text-white">${pwrCons.toFixed(1)} MW</span></div>
-                    <div class="flex justify-between font-bold mt-1 pt-1 border-t border-gray-700"><span class="text-gray-400">Net:</span><span class="${pwrProd-pwrCons >= 0 ? 'text-green-400':'text-red-400'}">${(pwrProd-pwrCons).toFixed(1)} MW</span></div>
+                    <div class="flex justify-between"><span class="text-gray-400">Produced:</span><span class="text-white">${pProd.toFixed(2)} MW</span></div>
+                    <div class="flex justify-between"><span class="text-gray-400">Consumed:</span><span class="text-white">${pCons.toFixed(2)} MW</span></div>
+                    <div class="flex justify-between font-bold mt-1 pt-1 border-t border-gray-700"><span class="text-gray-400">Net:</span><span class="${pNet >= 0 ? 'text-green-400':'text-red-400'}">${pNet.toFixed(2)} MW</span></div>
                 </div>
                 <div class="bg-gray-900 rounded p-2 border border-gray-700">
                     <p class="text-purple-400 font-bold mb-2">Item Ledger</p>
                     ${[...new Set([...prod.keys(), ...cons.keys()])].sort().map(item => {
-                        const net = (prod.get(item)||0) - (cons.get(item)||0);
-                        if (Math.abs(net) < 0.01 && (prod.get(item)||0) === 0) return '';
-                        return `<div class="flex justify-between border-b border-gray-700/50 py-1"><span class="text-gray-300 truncate w-1/2">${item}</span><span class="font-mono ${net>0.01?'text-green-400':net<-0.01?'text-red-400':'text-gray-500'}">${net.toFixed(1)}</span></div>`;
+                        const p = prod.get(item)||0;
+                        const c = cons.get(item)||0;
+                        const net = p - c;
+                        
+                        if (p < 0.01 && c < 0.01) return ''; 
+                        
+                        let netCls = 'text-gray-500';
+                        let netStr = '0.00';
+                        if (net > 0.05) { netCls = 'text-green-400'; netStr = '+' + net.toFixed(2); }
+                        else if (net < -0.05) { netCls = 'text-red-400'; netStr = net.toFixed(2); }
+                        
+                        return `<div class="flex justify-between border-b border-gray-700/50 py-1"><span class="text-gray-300 truncate w-1/2" title="${item}">${item}</span><span class="font-mono ${netCls}">${netStr}</span></div>`;
                     }).join('')}
                 </div>
             `;
@@ -1735,96 +1913,11 @@
                 if(act && !act.isLocked) { act.buildings=v.buildings; act.powerShard=v.powerShard; act.powerShards=v.powerShards; }
                 if(act && !act.isLocked) {
                     const bIn = act.element.querySelector('.inline-input:nth-child(2)'); if(bIn) bIn.value = v.buildings;
-                    const cIn = act.element.querySelectorAll('.inline-input')[1]; if(cIn) cIn.value = v.powerShard.toFixed(2);
+                    const cIn = act.element.querySelectorAll('.inline-input')[1]; if(cIn) cIn.value = Number.isInteger(v.powerShard) ? v.powerShard : v.powerShard.toFixed(4);
                 }
             });
             updateAllCalculations();
         }
-
-        // ==========================================
-        // IMPORT/EXPORT BLUEPRINTS
-        // ==========================================
-        document.getElementById('btn-export-bp').onclick = () => {
-            const bp = {
-                cards: Array.from(state.placedCards.values()).map(c=>({id:c.id, x:c.x, y:c.y, building:c.building, recipeName:c.recipe.name, config:{buildings:c.buildings, powerShard:c.powerShard, somersloops:c.somersloops, isFueled:c.isFueled, isLocked:c.isLocked, syncId:c.syncId, syncColor:c.syncColor}})),
-                connections: Array.from(state.connections.entries()).map(([k,v])=>({id:k, from:v.from, to:v.to})),
-                unlockedRecipes: Array.from(state.unlockedRecipes), nextCardId: state.nextCardId, nextConnectionId: state.nextConnectionId, syncGroupCounter: state.syncGroupCounter
-            };
-            const a = document.createElement('a');
-            a.href = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(bp));
-            a.download = "factory_bp.json"; a.click();
-        };
-
-        document.getElementById('btn-import-bp').onclick = () => document.getElementById('file-import-bp').click();
-        document.getElementById('file-import-bp').onchange = async e => {
-            if(!e.target.files[0]) return;
-            try {
-                pendingImport = JSON.parse(await e.target.files[0].text());
-                dom.importBpModal.classList.remove('hidden');
-            } catch(err) { 
-                console.error("Import failed:", err); 
-                showToast("Invalid Blueprint File"); 
-            }
-            e.target.value = '';
-        };
-
-        dom.importReplace.onclick = () => {
-            if (!pendingImport) return;
-            const bp = pendingImport;
-            dom.canvasContent.innerHTML = ''; dom.svgGroup.innerHTML = '';
-            state.placedCards.clear(); state.connections.clear();
-            state.nextCardId = bp.nextCardId || 1000; state.nextConnectionId = bp.nextConnectionId || 1000;
-            state.syncGroupCounter = bp.syncGroupCounter || 100;
-            if(bp.unlockedRecipes) state.unlockedRecipes = new Set(bp.unlockedRecipes);
-            
-            bp.cards.forEach(c => {
-                const r = state.recipeData.recipes[c.building]?.find(x=>x.name===c.recipeName) || (c.building==='Alien Power Augmenter'?{name:c.recipeName, inputs:{}, outputs:{}}:null);
-                if(r) createCard(c.building, r, c.x, c.y, c.id, c.config);
-            });
-            bp.connections.forEach(c => state.connections.set(c.id, {from:c.from, to:c.to}));
-            
-            populateConfig();
-            updateAllCalculations();
-            
-            dom.importBpModal.classList.add('hidden');
-            pendingImport = null;
-            showToast("Factory Replaced");
-        };
-
-        dom.importPaste.onclick = () => {
-            if (!pendingImport || !pendingImport.cards || pendingImport.cards.length === 0) {
-                dom.importBpModal.classList.add('hidden');
-                pendingImport = null;
-                return;
-            }
-            
-            let minX = Infinity, minY = Infinity;
-            pendingImport.cards.forEach(c => {
-                minX = Math.min(minX, c.x);
-                minY = Math.min(minY, c.y);
-            });
-            
-            const bulkSyncBase = `sync-bp-${Date.now()}`;
-
-            state.clipboard = {
-                cards: pendingImport.cards.map(c => {
-                    const r = state.recipeData.recipes[c.building]?.find(x=>x.name===c.recipeName) || (c.building==='Alien Power Augmenter'?{name:c.recipeName, inputs:{}, outputs:{}}:null);
-                    const config = {...c.config};
-                    if(config.syncId) config.syncId = `${bulkSyncBase}-${config.syncId}`; 
-                    return { building: c.building, recipe: r, dx: c.x - minX, dy: c.y - minY, config: config, oldId: c.id };
-                }),
-                connections: pendingImport.connections.map(c => ({from: {...c.from}, to: {...c.to}}))
-            };
-            
-            dom.importBpModal.classList.add('hidden');
-            pendingImport = null;
-            triggerPastePreview();
-        };
-
-        dom.cancelImport.onclick = () => {
-            dom.importBpModal.classList.add('hidden');
-            pendingImport = null;
-        };
 
     </script>
 </body>
