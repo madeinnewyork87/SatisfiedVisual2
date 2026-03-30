@@ -99,8 +99,9 @@
         .connector-node.output { right: -7px; background-color: var(--accent-green); }
         .connector-node:hover { transform: translateY(-50%) scale(1.3); }
         
-        .connection-line { stroke-width: 3; fill: none; stroke: var(--accent-indigo); pointer-events: none; transition: stroke 0.3s, stroke-width 0.2s, filter 0.2s; }
-        .connection-line.interactable { pointer-events: stroke; cursor: pointer; }
+        /* Pointer events stroke enables accurate single-clicking on connection lines */
+        .connection-line { stroke-width: 3; fill: none; stroke: var(--accent-indigo); pointer-events: stroke; cursor: pointer; transition: stroke 0.3s, stroke-width 0.2s, filter 0.2s; }
+        .connection-line:hover { filter: drop-shadow(0 0 3px var(--accent-indigo)); stroke-width: 4; }
         .connection-line.deficit { stroke: var(--accent-red); stroke-width: 4; }
         .connection-line.selected { stroke: var(--accent-cyan); filter: drop-shadow(0 0 4px var(--accent-cyan)); }
         
@@ -1174,10 +1175,30 @@
                             const cr = c.element.getBoundingClientRect();
                             if (rect.left < cr.right && rect.right > cr.left && rect.top < cr.bottom && rect.bottom > cr.top) state.selectedCardIds.add(c.id);
                         });
+                        
+                        const canvasRect = dom.canvasContainer.getBoundingClientRect();
                         dom.svgGroup.querySelectorAll('.connection-line').forEach(line => {
+                            if (line.id === 'temp-connection-line') return;
                             const lr = line.getBoundingClientRect();
-                            if (rect.left < lr.right && rect.right > lr.left && rect.top < lr.bottom && rect.bottom > lr.top) state.selectedConnectionIds.add(line.dataset.connId);
+                            // Quick AABB rejection
+                            if (rect.left <= lr.right && rect.right >= lr.left && rect.top <= lr.bottom && rect.bottom >= lr.top) {
+                                // Precision curve intersection sampling
+                                const length = line.getTotalLength();
+                                const numSamples = Math.max(10, Math.ceil(length / 15));
+                                let isTouching = false;
+                                for (let i = 0; i <= numSamples; i++) {
+                                    const pt = line.getPointAtLength((i / numSamples) * length);
+                                    const screenX = pt.x * state.viewport.zoom + state.viewport.x + canvasRect.left;
+                                    const screenY = pt.y * state.viewport.zoom + state.viewport.y + canvasRect.top;
+                                    if (screenX >= rect.left && screenX <= rect.right && screenY >= rect.top && screenY <= rect.bottom) {
+                                        isTouching = true;
+                                        break;
+                                    }
+                                }
+                                if (isTouching) state.selectedConnectionIds.add(line.dataset.connId);
+                            }
                         });
+                        
                         renderHighlights();
                         renderConnections();
                     }
@@ -1800,22 +1821,89 @@
                     if(bestRec && bestBldg) {
                         const tReq = consumers.reduce((sum,c)=>sum+c.req,0);
                         const bRate = bestRec.outputs[item];
-                        const nb = Math.ceil(tReq/bRate);
-                        const nc = (tReq/(bRate*nb))*100;
                         
-                        const nx = tCard.x - 500; 
-                        const ny = tCard.y + (offsetY * 400); offsetY++;
-                        
-                        const newC = createCard(bestBldg, bestRec, nx, ny, null, {
-                            buildings: nb, 
-                            powerShard: Math.min(250,Math.max(0.1,nc)),
-                            syncId: tCard.syncId, 
-                            syncColor: tCard.syncColor
-                        });
-                        
-                        consumers.forEach(cons => {
-                            state.connections.set(`conn-${state.nextConnectionId++}`, { from: {cardId: newC.id, itemName: item}, to: {cardId: cons.id, itemName: item}});
-                        });
+                        // CONSOLIDATION: Find an existing card with this exact recipe in the chain
+                        let targetExistingCard = null;
+                        for (const cId of chain) {
+                            const c = state.placedCards.get(cId);
+                            if (c && c.recipe.name === bestRec.name && !c.isLocked) {
+                                targetExistingCard = c;
+                                break;
+                            }
+                        }
+
+                        if (targetExistingCard) {
+                            // Scale up existing card
+                            const currentTargetOut = targetExistingCard.outputs[item] || 0;
+                            const newTotalOut = currentTargetOut + tReq;
+                            
+                            const sMult = SOMERSLOOP_SLOTS[targetExistingCard.building] > 0 ? (1 + (targetExistingCard.somersloops / SOMERSLOOP_SLOTS[targetExistingCard.building])) : 1;
+                            const effectiveBRate = bRate * sMult;
+                            
+                            let nb = Math.ceil(newTotalOut / effectiveBRate);
+                            let nc = (newTotalOut / (effectiveBRate * nb)) * 100;
+                            
+                            if (nc > 250) {
+                                nb = Math.ceil(newTotalOut / (effectiveBRate * 2.5));
+                                nc = (newTotalOut / (effectiveBRate * nb)) * 100;
+                            }
+                            
+                            targetExistingCard.buildings = Math.max(1, nb);
+                            targetExistingCard.powerShard = Math.min(250, Math.max(0.1, nc));
+                            
+                            // Update DOM visually
+                            const bIn = targetExistingCard.element.querySelector('.input-bldgs'); 
+                            const cIn = targetExistingCard.element.querySelector('.input-clock');
+                            if(bIn) bIn.value = targetExistingCard.buildings;
+                            if(cIn) cIn.value = Number.isInteger(targetExistingCard.powerShard) ? targetExistingCard.powerShard : targetExistingCard.powerShard.toFixed(4);
+
+                            updateCardCalculations(targetExistingCard);
+
+                            // Connect consumers to the scaled-up existing card
+                            consumers.forEach(cons => {
+                                let exists = false;
+                                state.connections.forEach(conn => {
+                                    if (conn.from.cardId === targetExistingCard.id && conn.from.itemName === item &&
+                                        conn.to.cardId === cons.id && conn.to.itemName === item) {
+                                        exists = true;
+                                    }
+                                });
+                                if (!exists) {
+                                    state.connections.set(`conn-${state.nextConnectionId++}`, { 
+                                        from: {cardId: targetExistingCard.id, itemName: item}, 
+                                        to: {cardId: cons.id, itemName: item}
+                                    });
+                                }
+                            });
+                        } else {
+                            // No existing card found, spawn a new one
+                            let nb = Math.ceil(tReq / bRate);
+                            let nc = (tReq / (bRate * nb)) * 100;
+                            
+                            if (nc > 250) {
+                                nb = Math.ceil(tReq / (bRate * 2.5));
+                                nc = (tReq / (bRate * nb)) * 100;
+                            }
+
+                            const nx = tCard.x - 500; 
+                            const ny = tCard.y + (offsetY * 400); offsetY++;
+                            
+                            const newC = createCard(bestBldg, bestRec, nx, ny, null, {
+                                buildings: nb, 
+                                powerShard: Math.min(250,Math.max(0.1,nc)),
+                                syncId: tCard.syncId, 
+                                syncColor: tCard.syncColor
+                            });
+                            
+                            chain.add(newC.id); // Register to current chain snapshot so other items might reuse it this pass
+                            
+                            consumers.forEach(cons => {
+                                state.connections.set(`conn-${state.nextConnectionId++}`, { 
+                                    from: {cardId: newC.id, itemName: item}, 
+                                    to: {cardId: cons.id, itemName: item}
+                                });
+                            });
+                        }
                         changed = true;
                     }
                 });
