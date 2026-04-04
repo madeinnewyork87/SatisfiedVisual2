@@ -29,7 +29,7 @@ Because the planner is built with vanilla HTML, JavaScript, and Tailwind CSS (vi
 Option 1: Live Web Version
 
 Just visit the live GitHub Pages link:
-👉 Play with the Planner Here (Update link if different)
+👉 Play with the Planner Here https://madeinnewyork87.github.io/SatisfiedVisual2/SatisfiedPlanner2.html
 
 Option 2: Run Locally
 
@@ -95,7 +95,7 @@ Open a Pull Request
 
 ☕ Support
 
-If this tool helped you organize your spaghetti factory into a beautifully efficient machine, consider supporting the project!
+If this tool helped you organize your spaghetti factory into a beautifully efficient machine, consider supporting the project! https://buymeacoffee.com/shinjuku1
 
 📜 License
 
