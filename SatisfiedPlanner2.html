@@ -123,6 +123,13 @@
         .collapsible-header.active .chevron { transform: rotate(90deg); }
         .tree-item { cursor: pointer; user-select: none; }
         .tree-item:hover { background-color: rgba(255, 255, 255, 0.05); }
+
+        /* AI Glow Animation */
+        @keyframes subtle-glow {
+            0%, 100% { box-shadow: 0 0 5px rgba(168, 85, 247, 0.4); }
+            50% { box-shadow: 0 0 15px rgba(168, 85, 247, 0.8); }
+        }
+        .ai-glow { animation: subtle-glow 2s infinite ease-in-out; }
     </style>
 </head>
 <body>
@@ -173,6 +180,10 @@
             </div>
 
             <div class="flex items-center gap-2">
+                <button id="btn-ai-planner" class="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold py-1.5 px-3 text-xs rounded transition-colors flex items-center gap-1 ai-glow" title="Generate Build Plan">
+                    <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                    AI Architect
+                </button>
                 <a href="https://madeinnewyork87.github.io/SatisfiedVisual2/SatisfiedRecipeEditor.html" target="_blank" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-1.5 px-3 text-xs rounded transition-colors flex items-center gap-1" title="Open Recipe Editor">
                     <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                     Recipe Editor
@@ -234,6 +245,12 @@
                         Load Custom recipes.js
                     </button>
                     <input type="file" id="file-config-import" class="hidden" accept=".js,.json,text/javascript">
+                </div>
+                <div class="border-b border-gray-700 pb-4">
+                    <h3 class="text-xs font-bold text-indigo-400 mb-2 uppercase">API Settings</h3>
+                    <p class="text-[10px] text-gray-400 mb-2 leading-tight">Optional in this preview environment. Required if running locally.</p>
+                    <input type="password" id="cfg-api-key" placeholder="Gemini API Key" class="w-full bg-gray-700 text-xs text-white p-1.5 rounded border border-gray-600 mb-2">
+                    <button id="btn-save-apikey" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-1.5 px-3 text-xs rounded transition-colors">Save API Key</button>
                 </div>
                 <div>
                     <h3 class="text-xs font-bold text-indigo-400 mb-2 uppercase">Default Strategy</h3>
@@ -316,6 +333,35 @@
         </div>
     </div>
 
+    <!-- AI Architect Modal -->
+    <div id="ai-planner-modal" class="hidden fixed inset-0 bg-black/80 z-[6000] flex items-center justify-center backdrop-blur-sm">
+        <div class="bg-gray-800 rounded-lg p-6 w-[500px] shadow-[0_0_40px_rgba(168,85,247,0.3)] border border-purple-500/50 relative overflow-hidden">
+            <!-- Loading Overlay -->
+            <div id="ai-loading-overlay" class="hidden absolute inset-0 bg-gray-900/90 flex flex-col items-center justify-center z-20 backdrop-blur-sm">
+                <svg class="w-16 h-16 text-purple-500 mx-auto mb-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <h3 class="text-xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400 mb-2">The AI Architect is crunching the numbers...</h3>
+                <p class="text-sm text-gray-400 animate-pulse mb-6">Designing optimal factory layout...</p>
+                <button id="cancel-ai-loading" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-white text-xs transition-colors shadow">Cancel Request</button>
+            </div>
+
+            <div class="flex items-center gap-2 mb-4">
+                <svg class="w-6 h-6 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                <h3 class="text-2xl font-bold text-white">AI Architect</h3>
+            </div>
+            
+            <p class="text-sm text-gray-400 mb-4">Describe the end-game build you want to create. The AI will consider your unlocked Alternate Recipes and generate a fully wired layout.</p>
+            
+            <textarea id="ai-prompt-input" rows="4" class="w-full bg-gray-900 text-white border border-gray-600 rounded p-3 text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none mb-4" placeholder="e.g. Generate a factory that produces 10 Heavy Modular Frames per minute."></textarea>
+            
+            <div class="flex justify-end gap-3">
+                <button id="cancel-ai" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded text-white text-sm transition-colors">Cancel</button>
+                <button id="confirm-ai" class="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded text-white font-bold text-sm shadow-lg transition-all ai-glow">Generate Layout</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // ==========================================
         // STATE & CONSTANTS
@@ -331,7 +377,7 @@
             selectedCardIds: new Set(), selectedConnectionIds: new Set(), lockedCardIds: new Set(),
             nextCardId: 1, nextConnectionId: 1, gridSize: 20, syncGroupCounter: 1,
             unlockedRecipes: new Set(), clipboard: null, pastePreview: null,
-            config: { buildStrategy: 'simple', useSAM: false }
+            config: { buildStrategy: 'simple', useSAM: false, apiKey: '' }
         };
 
         const SYNC_COLORS = ['text-indigo-400', 'text-pink-400', 'text-blue-400', 'text-green-400', 'text-orange-400', 'text-yellow-400', 'text-red-400'];
@@ -364,7 +410,18 @@
             abCancel: document.getElementById('cancel-autobuild'),
             fileImportBp: document.getElementById('file-import-bp'), importBpModal: document.getElementById('import-bp-modal'),
             importReplace: document.getElementById('import-replace'), importPaste: document.getElementById('import-paste'),
-            cancelImport: document.getElementById('cancel-import')
+            cancelImport: document.getElementById('cancel-import'),
+            
+            // AI Planner specific DOM elements
+            btnAiPlanner: document.getElementById('btn-ai-planner'),
+            aiModal: document.getElementById('ai-planner-modal'),
+            cancelAi: document.getElementById('cancel-ai'),
+            confirmAi: document.getElementById('confirm-ai'),
+            aiInput: document.getElementById('ai-prompt-input'),
+            aiLoading: document.getElementById('ai-loading-overlay'),
+            cancelAiLoading: document.getElementById('cancel-ai-loading'),
+            cfgApiKey: document.getElementById('cfg-api-key'),
+            btnSaveApiKey: document.getElementById('btn-save-apikey')
         };
 
         // ==========================================
@@ -474,6 +531,248 @@
         }
 
         // ==========================================
+        // GEMINI AI INTEGRATION
+        // ==========================================
+
+        // Helper to delay logic for exponential backoff
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+
+        // Fetch with exponential backoff per system requirements
+        async function fetchWithRetry(url, options, maxRetries = 5) {
+            const delays = [1000, 2000, 4000, 8000, 16000];
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (!response.ok) {
+                        const errDetails = await response.text();
+                        throw new Error(`HTTP ${response.status}: ${errDetails}`);
+                    }
+                    return await response.json();
+                } catch (error) {
+                    if (error.name === 'AbortError') throw error;
+                    if (i === maxRetries - 1) throw error;
+                    await delay(delays[i]);
+                }
+            }
+        }
+
+        async function callGeminiAI(userPrompt, signal) {
+            const defaultApiKey = ""; // Injected automatically by the execution environment
+            const activeKey = state.config.apiKey || defaultApiKey;
+            
+            // Use standard public model for custom keys, and the required preview model for the default environment key
+            const modelName = activeKey ? "gemini-2.5-flash" : "gemini-2.5-flash-preview-09-2025";
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${activeKey}`;
+            
+            // Format allowed context for Gemini
+            let recipeContext = "Available Machines & Allowed Recipes:\n";
+            const allowedAlts = Array.from(state.unlockedRecipes);
+            
+            for (const [bName, recipes] of Object.entries(state.recipeData.recipes)) {
+                if (bName === 'Special') continue;
+                const validRecs = recipes.filter(r => !r.isAlternate || allowedAlts.includes(`${bName}|${r.name}`));
+                if(validRecs.length > 0) {
+                    recipeContext += `${bName}: ${validRecs.map(r => r.name).join(', ')}\n`;
+                }
+            }
+
+            const systemPrompt = `You are an expert Satisfactory Factory Architect.
+Your task is to design an optimal, mathematical factory layout based on the user's request.
+Constraints:
+1. ONLY use the exact Building Names and exact Recipe Names provided in the Available Recipes list.
+2. Provide 'nodes' representing machines or groups of machines. Space them out on the grid (e.g., Miners at x=0, Smelters at x=500, Constructors at x=1000). Set Y to space them vertically (0, 450, 900, etc.).
+3. Provide 'edges' representing exact item flow. 'fromId' and 'toId' must correspond to node IDs. 'itemName' must exactly match a recipe output.
+4. Calculate 'buildingsCount' and 'clockSpeed' strictly based on ratios.`;
+
+            const aiSchema = {
+                type: "OBJECT",
+                properties: {
+                    planName: { type: "STRING" },
+                    summary: { type: "STRING" },
+                    nodes: {
+                        type: "ARRAY",
+                        items: {
+                            type: "OBJECT",
+                            properties: {
+                                id: { type: "STRING", description: "Unique string id, e.g., 'smelter_iron_1'" },
+                                building: { type: "STRING" },
+                                recipeName: { type: "STRING" },
+                                buildingsCount: { type: "NUMBER", description: "Number of machines" },
+                                clockSpeed: { type: "NUMBER", description: "Percentage, e.g., 100 for 100%" },
+                                x: { type: "NUMBER" },
+                                y: { type: "NUMBER" }
+                            }
+                        }
+                    },
+                    edges: {
+                        type: "ARRAY",
+                        items: {
+                            type: "OBJECT",
+                            properties: {
+                                fromId: { type: "STRING" },
+                                toId: { type: "STRING" },
+                                itemName: { type: "STRING" }
+                            }
+                        }
+                    }
+                }
+            };
+
+            const payload = {
+                contents: [{ parts: [{ text: `User Goal: ${userPrompt}\n\n${recipeContext}` }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: aiSchema
+                }
+            };
+
+            const result = await fetchWithRetry(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: signal
+            });
+
+            if(!result || !result.candidates || !result.candidates[0].content || !result.candidates[0].content.parts) {
+                throw new Error("Invalid response format from AI or prompt was blocked for safety.");
+            }
+
+            const rawText = result.candidates[0].content.parts[0].text;
+            const cleanText = rawText.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
+            return JSON.parse(cleanText);
+        }
+
+        function applyAiPlanToCanvas(planData) {
+            // Unselect everything first
+            state.selectedCardIds.clear();
+            state.selectedConnectionIds.clear();
+
+            // Find current bounds or center of viewport to spawn the plan
+            const vpCenter = screenToWorld(dom.canvasContainer.clientWidth / 2, dom.canvasContainer.clientHeight / 2);
+            const startX = Math.round(vpCenter.x / state.gridSize) * state.gridSize - 500;
+            const startY = Math.round(vpCenter.y / state.gridSize) * state.gridSize - 500;
+
+            const idMap = new Map(); // Maps AI internal node ID to our internal Canvas Card ID
+            let cardsAdded = 0;
+
+            // Step 1: Create Cards
+            planData.nodes.forEach(node => {
+                const recipesForBldg = state.recipeData.recipes[node.building];
+                if (!recipesForBldg) return; // Hallucinated building
+                
+                const matchedRecipe = recipesForBldg.find(r => r.name === node.recipeName);
+                if (!matchedRecipe) return; // Hallucinated recipe
+
+                const cardConfig = {
+                    buildings: node.buildingsCount || 1,
+                    powerShard: node.clockSpeed || 100,
+                    somersloops: 0,
+                    isFueled: false
+                };
+
+                const card = createCard(
+                    node.building, 
+                    matchedRecipe, 
+                    startX + node.x, 
+                    startY + node.y, 
+                    null, 
+                    cardConfig
+                );
+                
+                idMap.set(node.id, card.id);
+                state.selectedCardIds.add(card.id);
+                cardsAdded++;
+            });
+
+            // Step 2: Create Connections
+            planData.edges.forEach(edge => {
+                const fId = idMap.get(edge.fromId);
+                const tId = idMap.get(edge.toId);
+                if (fId && tId) {
+                    const connId = `conn-${state.nextConnectionId++}`;
+                    state.connections.set(connId, {
+                        from: { cardId: fId, itemName: edge.itemName },
+                        to: { cardId: tId, itemName: edge.itemName }
+                    });
+                    state.selectedConnectionIds.add(connId);
+                }
+            });
+
+            // Trigger updates
+            updateAllCalculations();
+            renderHighlights();
+            renderConnections();
+
+            // --- THE FIX ---
+            // AI models are notoriously bad at recursive ratio math and coordinates. 
+            // To guarantee a perfect factory, we run the app's native auto-balance 
+            // and auto-arrange algorithms directly over the AI's generated blueprint!
+            const processedSets = new Set();
+            state.selectedCardIds.forEach(id => {
+                if (!processedSets.has(id)) {
+                    const c = state.placedCards.get(id);
+                    if (c) {
+                        const chain = getConnectedSet(id);
+                        chain.forEach(cid => processedSets.add(cid));
+                        
+                        // Recalculate exact machine counts/clocks based on the final target
+                        autoBalanceChain(c, state.config); 
+                        // Clean up the messy AI layout
+                        groupedArrangeLayout(c); 
+                    }
+                }
+            });
+
+            showToast(`AI generated ${cardsAdded} buildings!`);
+            console.log(`AI Strategy: ${planData.summary}`);
+        }
+
+        let currentAiAbortController = null;
+
+        // Wire AI DOM elements
+        dom.btnAiPlanner.onclick = () => {
+            dom.aiModal.classList.remove('hidden');
+            dom.aiInput.value = '';
+            dom.aiInput.focus();
+        };
+
+        dom.cancelAi.onclick = () => {
+            dom.aiModal.classList.add('hidden');
+        };
+
+        dom.cancelAiLoading.onclick = () => {
+            if (currentAiAbortController) {
+                currentAiAbortController.abort();
+                currentAiAbortController = null;
+            }
+        };
+
+        dom.confirmAi.onclick = async () => {
+            const prompt = dom.aiInput.value.trim();
+            if (!prompt) return showToast("Please enter a build plan goal.");
+
+            dom.aiLoading.classList.remove('hidden');
+            currentAiAbortController = new AbortController();
+
+            try {
+                const planData = await callGeminiAI(prompt, currentAiAbortController.signal);
+                applyAiPlanToCanvas(planData);
+                dom.aiModal.classList.add('hidden');
+            } catch (err) {
+                if (err.name === 'AbortError') {
+                    showToast("AI Architect request cancelled.");
+                } else {
+                    console.error("AI Architect Error:", err);
+                    showToast("AI Architect failed: " + (err.message || "Unknown error"));
+                }
+            } finally {
+                dom.aiLoading.classList.add('hidden');
+                currentAiAbortController = null;
+            }
+        };
+
+        // ==========================================
         // UI: LIBRARY & SIDEBARS
         // ==========================================
         function populateLibrary() {
@@ -568,6 +867,19 @@
         document.getElementById('cfg-build-strat').onchange = e => state.config.buildStrategy = e.target.value;
         document.getElementById('cfg-use-sam').onchange = e => state.config.useSAM = e.target.checked;
 
+        const savedApiKey = localStorage.getItem('satisfactory_planner_apikey');
+        if (savedApiKey) {
+            state.config.apiKey = savedApiKey;
+            dom.cfgApiKey.value = savedApiKey;
+        }
+
+        dom.btnSaveApiKey.onclick = () => {
+            const key = dom.cfgApiKey.value.trim();
+            state.config.apiKey = key;
+            localStorage.setItem('satisfactory_planner_apikey', key);
+            showToast("API Key saved locally.");
+        };
+
         // ==========================================
         // CARDS & DIRECT EDITING
         // ==========================================
@@ -589,7 +901,7 @@
                 <div class="rate-container bg-gray-900/90 rounded px-1.5 py-1 z-10 border border-gray-700 focus-within:border-indigo-400 transition-colors flex items-center">
                     <input type="number" class="rate-input ${type==='input' ? 'text-orange-400' : 'text-green-400'}" data-target-${type}="${name}" data-type="${type}" value="${tgtVal.toFixed(2)}" title="Click to edit target rate">
                 </div>
-                       
+                        
                 ${type==='output' ? `<div class="connector-node output" data-type="output" data-item-name="${name}"></div>` : ''}
             </div>`
         }).join('') || '<div class="text-gray-600 text-center py-2 text-xs">None</div>';
@@ -1247,9 +1559,9 @@
             });
 
             window.addEventListener('keydown', e => {
-                if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT') return;
+                if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'TEXTAREA') return;
                 if (e.key === 'Delete' || e.key === 'Backspace') deleteSelection();
-                if (e.key === 'Escape') { dom.contextMenu.innerHTML = ''; cancelConnectionDrawing(); dom.abModal.classList.add('hidden'); document.getElementById('popup-slider-container').classList.add('hidden'); dom.importBpModal.classList.add('hidden'); if(state.pastePreview) cancelPaste(); }
+                if (e.key === 'Escape') { dom.contextMenu.innerHTML = ''; cancelConnectionDrawing(); dom.abModal.classList.add('hidden'); dom.aiModal.classList.add('hidden'); document.getElementById('popup-slider-container').classList.add('hidden'); dom.importBpModal.classList.add('hidden'); if(state.pastePreview) cancelPaste(); }
                 if (e.ctrlKey || e.metaKey) {
                     if (e.key.toLowerCase() === 'c') { e.preventDefault(); copySelection(); }
                     if (e.key.toLowerCase() === 'x') { e.preventDefault(); copySelection(); deleteSelection(); }
