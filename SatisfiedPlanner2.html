@@ -1922,8 +1922,53 @@ Constraints:
         };
 
         // ==========================================
-        // IMPORT BLUEPRINT MODAL
+        // IMPORT / EXPORT BLUEPRINT MODAL
         // ==========================================
+        document.getElementById('btn-export-bp').onclick = () => {
+            if (state.placedCards.size === 0) {
+                return showToast("Canvas is empty! Nothing to export.");
+            }
+
+            const bp = {
+                cards: Array.from(state.placedCards.values()).map(c => ({
+                    id: c.id,
+                    building: c.building,
+                    recipeName: c.recipe.name,
+                    x: c.x,
+                    y: c.y,
+                    config: {
+                        buildings: c.buildings,
+                        powerShard: c.powerShard,
+                        somersloops: c.somersloops,
+                        isFueled: c.isFueled,
+                        isLocked: c.isLocked,
+                        syncId: c.syncId,
+                        syncColor: c.syncColor
+                    }
+                })),
+                connections: Array.from(state.connections.entries()).map(([id, c]) => ({
+                    id: id,
+                    from: c.from,
+                    to: c.to
+                })),
+                nextCardId: state.nextCardId,
+                nextConnectionId: state.nextConnectionId,
+                syncGroupCounter: state.syncGroupCounter,
+                unlockedRecipes: Array.from(state.unlockedRecipes),
+                modules: state.config.modules
+            };
+            
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(bp, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", "satisfactory_blueprint.json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+            
+            showToast("Blueprint exported successfully!");
+        };
+
         document.getElementById('btn-import-bp').onclick = () => dom.fileImportBp.click();
         dom.fileImportBp.onchange = async e => {
             if(!e.target.files[0]) return;
