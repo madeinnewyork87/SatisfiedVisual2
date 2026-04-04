@@ -252,6 +252,15 @@
                     <input type="password" id="cfg-api-key" placeholder="Gemini API Key" class="w-full bg-gray-700 text-xs text-white p-1.5 rounded border border-gray-600 mb-2">
                     <button id="btn-save-apikey" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-1.5 px-3 text-xs rounded transition-colors">Save API Key</button>
                 </div>
+                
+                <div class="border-b border-gray-700 pb-4">
+                    <h3 class="text-xs font-bold text-indigo-400 mb-2 uppercase">Blueprint Modules</h3>
+                    <p class="text-[10px] text-gray-400 mb-2 leading-tight">Force auto-balancer to round machines to specific batch sizes (e.g. groups of 12).</p>
+                    <div id="cfg-modules-list" class="space-y-1 max-h-48 overflow-y-auto pr-1 no-scrollbar">
+                        <!-- Dynamic list generated here -->
+                    </div>
+                </div>
+
                 <div>
                     <h3 class="text-xs font-bold text-indigo-400 mb-2 uppercase">Default Strategy</h3>
                     <select id="cfg-build-strat" class="w-full bg-gray-700 text-xs text-white p-1.5 rounded border border-gray-600">
@@ -351,13 +360,13 @@
                 <h3 class="text-2xl font-bold text-white">AI Architect</h3>
             </div>
             
-            <p class="text-sm text-gray-400 mb-4">Describe the end-game build you want to create. The AI will consider your unlocked Alternate Recipes and generate a fully wired layout.</p>
+            <p class="text-sm text-gray-400 mb-4">Describe the end-game build you want to create, or ask it to modify your existing canvas layout. The AI will consider your unlocked Alternate Recipes.</p>
             
-            <textarea id="ai-prompt-input" rows="4" class="w-full bg-gray-900 text-white border border-gray-600 rounded p-3 text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none mb-4" placeholder="e.g. Generate a factory that produces 10 Heavy Modular Frames per minute."></textarea>
+            <textarea id="ai-prompt-input" rows="4" class="w-full bg-gray-900 text-white border border-gray-600 rounded p-3 text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none mb-4" placeholder="e.g. Generate a factory that produces 10 Heavy Modular Frames per minute, OR 'Swap out my Bauxite Refineries to use Sloppy Alumina'"></textarea>
             
             <div class="flex justify-end gap-3">
                 <button id="cancel-ai" class="px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded text-white text-sm transition-colors">Cancel</button>
-                <button id="confirm-ai" class="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded text-white font-bold text-sm shadow-lg transition-all ai-glow">Generate Layout</button>
+                <button id="confirm-ai" class="px-6 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded text-white font-bold text-sm shadow-lg transition-all ai-glow">Generate / Update Layout</button>
             </div>
         </div>
     </div>
@@ -377,7 +386,7 @@
             selectedCardIds: new Set(), selectedConnectionIds: new Set(), lockedCardIds: new Set(),
             nextCardId: 1, nextConnectionId: 1, gridSize: 20, syncGroupCounter: 1,
             unlockedRecipes: new Set(), clipboard: null, pastePreview: null,
-            config: { buildStrategy: 'simple', useSAM: false, apiKey: '' }
+            config: { buildStrategy: 'simple', useSAM: false, apiKey: '', modules: {}, prefsLoaded: false }
         };
 
         const SYNC_COLORS = ['text-indigo-400', 'text-pink-400', 'text-blue-400', 'text-green-400', 'text-orange-400', 'text-yellow-400', 'text-red-400'];
@@ -421,8 +430,46 @@
             aiLoading: document.getElementById('ai-loading-overlay'),
             cancelAiLoading: document.getElementById('cancel-ai-loading'),
             cfgApiKey: document.getElementById('cfg-api-key'),
-            btnSaveApiKey: document.getElementById('btn-save-apikey')
+            btnSaveApiKey: document.getElementById('btn-save-apikey'),
+            cfgModulesList: document.getElementById('cfg-modules-list')
         };
+
+        // ==========================================
+        // USER PREFERENCES / LOCAL STORAGE
+        // ==========================================
+        function savePreferences() {
+            const prefs = {
+                buildStrategy: state.config.buildStrategy,
+                useSAM: state.config.useSAM,
+                modules: state.config.modules,
+                unlockedRecipes: Array.from(state.unlockedRecipes)
+            };
+            try { localStorage.setItem('satisfactory_planner_prefs', JSON.stringify(prefs)); } catch(e) {}
+        }
+
+        function loadPreferences() {
+            try {
+                const prefsStr = localStorage.getItem('satisfactory_planner_prefs');
+                if (prefsStr) {
+                    const prefs = JSON.parse(prefsStr);
+                    if (prefs.buildStrategy) {
+                        state.config.buildStrategy = prefs.buildStrategy;
+                        document.getElementById('cfg-build-strat').value = prefs.buildStrategy;
+                    }
+                    if (prefs.useSAM !== undefined) {
+                        state.config.useSAM = prefs.useSAM;
+                        document.getElementById('cfg-use-sam').checked = prefs.useSAM;
+                    }
+                    if (prefs.modules) state.config.modules = prefs.modules;
+                    if (prefs.unlockedRecipes) {
+                        state.unlockedRecipes = new Set(prefs.unlockedRecipes);
+                        state.config.prefsLoaded = true;
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to load preferences", e);
+            }
+        }
 
         // ==========================================
         // STARTUP & DATA LOAD
@@ -488,10 +535,18 @@
             dom.startupScreen.classList.add('hidden');
             dom.appUi.classList.remove('hidden');
             
-            Object.entries(state.recipeData.recipes).forEach(([bName, recipes]) => {
-                recipes.forEach(r => { if (r.isAlternate) state.unlockedRecipes.add(`${bName}|${r.name}`); });
-            });
+            // Load saved preferences first
+            loadPreferences();
+
+            // If no preferences existed for unlocked recipes, default them to unlocked
+            if (!state.config.prefsLoaded) {
+                Object.entries(state.recipeData.recipes).forEach(([bName, recipes]) => {
+                    recipes.forEach(r => { if (r.isAlternate) state.unlockedRecipes.add(`${bName}|${r.name}`); });
+                });
+            }
+            
             populateLibrary();
+            populateModules();
             populateConfig();
             
             if (!hasInitialized) {
@@ -576,35 +631,69 @@
                 }
             }
 
+            // Extract current canvas state to give the AI context!
+            const currentNodes = Array.from(state.placedCards.values()).map(c => ({
+                id: c.id, building: c.building, recipeName: c.recipe.name, buildingsCount: c.buildings, clockSpeed: c.powerShard, x: c.x, y: c.y
+            }));
+            const currentEdges = Array.from(state.connections.entries()).map(([id, c]) => ({
+                id: id, fromId: c.from.cardId, toId: c.to.cardId, itemName: c.from.itemName
+            }));
+            const currentStateStr = `Current Canvas State:\n${JSON.stringify({ nodes: currentNodes, edges: currentEdges }, null, 2)}`;
+
             const systemPrompt = `You are an expert Satisfactory Factory Architect.
-Your task is to design an optimal, mathematical factory layout based on the user's request.
+Your task is to modify the current factory layout or design a new one based on the user's request.
 Constraints:
 1. ONLY use the exact Building Names and exact Recipe Names provided in the Available Recipes list.
-2. Provide 'nodes' representing machines or groups of machines. Space them out on the grid (e.g., Miners at x=0, Smelters at x=500, Constructors at x=1000). Set Y to space them vertically (0, 450, 900, etc.).
-3. Provide 'edges' representing exact item flow. 'fromId' and 'toId' must correspond to node IDs. 'itemName' must exactly match a recipe output.
-4. Calculate 'buildingsCount' and 'clockSpeed' strictly based on ratios.`;
+2. You have access to the user's current canvas state (existing nodes and edges). Analyze it to fulfill their request.
+3. If designing a new layout from scratch, use 'addNodes' and 'addEdges'. Space new nodes out on the grid.
+4. If modifying the current state, you can use 'deleteNodeIds', 'deleteEdgeIds', and 'updateNodes'.
+5. 'addEdges' MUST use exact 'itemName' strings that match recipe outputs. 'fromId' and 'toId' map to node IDs.
+6. If the user mentions Blueprint Modules or batch sizes (e.g., "modules of 18 constructors"), extract that into 'blueprintModules'. The native app will use this configuration to automatically round all machine counts to multiples of those batch sizes and scale the clock speed perfectly! Mathematical precision for buildingsCount/clockSpeed is secondary; focus on recipes and edges.`;
 
             const aiSchema = {
                 type: "OBJECT",
                 properties: {
-                    planName: { type: "STRING" },
-                    summary: { type: "STRING" },
-                    nodes: {
+                    summary: { type: "STRING", description: "Explain what changes you made and why." },
+                    blueprintModules: { 
+                        type: "ARRAY", 
+                        description: "Extract any requested blueprint module or batch sizes per building to update the app's balancer logic.",
+                        items: { 
+                            type: "OBJECT", 
+                            properties: { 
+                                building: { type: "STRING", description: "Exact building name, e.g. 'Constructor'" }, 
+                                moduleSize: { type: "NUMBER", description: "The batch size, e.g. 18" } 
+                            } 
+                        } 
+                    },
+                    deleteEdgeIds: { type: "ARRAY", items: { type: "STRING" } },
+                    deleteNodeIds: { type: "ARRAY", items: { type: "STRING" } },
+                    updateNodes: {
                         type: "ARRAY",
                         items: {
                             type: "OBJECT",
                             properties: {
-                                id: { type: "STRING", description: "Unique string id, e.g., 'smelter_iron_1'" },
+                                id: { type: "STRING" },
+                                buildingsCount: { type: "NUMBER" },
+                                clockSpeed: { type: "NUMBER" }
+                            }
+                        }
+                    },
+                    addNodes: {
+                        type: "ARRAY",
+                        items: {
+                            type: "OBJECT",
+                            properties: {
+                                id: { type: "STRING" },
                                 building: { type: "STRING" },
                                 recipeName: { type: "STRING" },
-                                buildingsCount: { type: "NUMBER", description: "Number of machines" },
-                                clockSpeed: { type: "NUMBER", description: "Percentage, e.g., 100 for 100%" },
+                                buildingsCount: { type: "NUMBER" },
+                                clockSpeed: { type: "NUMBER" },
                                 x: { type: "NUMBER" },
                                 y: { type: "NUMBER" }
                             }
                         }
                     },
-                    edges: {
+                    addEdges: {
                         type: "ARRAY",
                         items: {
                             type: "OBJECT",
@@ -619,7 +708,7 @@ Constraints:
             };
 
             const payload = {
-                contents: [{ parts: [{ text: `User Goal: ${userPrompt}\n\n${recipeContext}` }] }],
+                contents: [{ parts: [{ text: `User Goal: ${userPrompt}\n\n${recipeContext}\n\n${currentStateStr}` }] }],
                 systemInstruction: { parts: [{ text: systemPrompt }] },
                 generationConfig: {
                     responseMimeType: "application/json",
@@ -644,70 +733,126 @@ Constraints:
         }
 
         function applyAiPlanToCanvas(planData) {
+            // Apply Blueprint Module Updates if detected by AI
+            if (planData.blueprintModules && planData.blueprintModules.length > 0) {
+                planData.blueprintModules.forEach(mod => {
+                    if (state.buildingsMap.has(mod.building) && mod.moduleSize > 0) {
+                        state.config.modules[mod.building] = mod.moduleSize;
+                        // Dynamically update the specific UI input
+                        const inp = dom.cfgModulesList.querySelector(`input[data-bldg="${mod.building}"]`);
+                        if (inp) inp.value = mod.moduleSize;
+                    }
+                });
+                savePreferences();
+            }
+
             // Unselect everything first
             state.selectedCardIds.clear();
             state.selectedConnectionIds.clear();
 
-            // Find current bounds or center of viewport to spawn the plan
+            let cardsAdded = 0;
+            let cardsUpdated = 0;
+            let cardsDeleted = 0;
+
+            // 1. Delete Edges
+            if (planData.deleteEdgeIds) {
+                planData.deleteEdgeIds.forEach(id => state.connections.delete(id));
+            }
+
+            // 2. Delete Nodes
+            if (planData.deleteNodeIds) {
+                planData.deleteNodeIds.forEach(id => {
+                    const c = state.placedCards.get(id);
+                    if (c) {
+                        c.element.remove();
+                        state.placedCards.delete(id);
+                        cardsDeleted++;
+                        // Clean up hanging connections
+                        const toDel = [];
+                        state.connections.forEach((v, k) => { if (v.from.cardId === id || v.to.cardId === id) toDel.push(k); });
+                        toDel.forEach(k => state.connections.delete(k));
+                    }
+                });
+            }
+
+            // 3. Update Existing Nodes
+            if (planData.updateNodes) {
+                planData.updateNodes.forEach(update => {
+                    const c = state.placedCards.get(update.id);
+                    if (c && !c.isLocked) {
+                        if (update.buildingsCount !== undefined) c.buildings = update.buildingsCount;
+                        if (update.clockSpeed !== undefined) c.powerShard = update.clockSpeed;
+                        
+                        const bIn = c.element.querySelector('.input-bldgs'); 
+                        const cIn = c.element.querySelector('.input-clock');
+                        if(bIn) bIn.value = c.buildings;
+                        if(cIn) cIn.value = Number.isInteger(c.powerShard) ? c.powerShard : c.powerShard.toFixed(4);
+                        
+                        cardsUpdated++;
+                        state.selectedCardIds.add(c.id);
+                    }
+                });
+            }
+
+            // 4. Add New Nodes
+            const idMap = new Map(); // Maps AI internal node ID to our internal Canvas Card ID
             const vpCenter = screenToWorld(dom.canvasContainer.clientWidth / 2, dom.canvasContainer.clientHeight / 2);
             const startX = Math.round(vpCenter.x / state.gridSize) * state.gridSize - 500;
             const startY = Math.round(vpCenter.y / state.gridSize) * state.gridSize - 500;
 
-            const idMap = new Map(); // Maps AI internal node ID to our internal Canvas Card ID
-            let cardsAdded = 0;
+            if (planData.addNodes) {
+                planData.addNodes.forEach(node => {
+                    const recipesForBldg = state.recipeData.recipes[node.building];
+                    if (!recipesForBldg) return; // Hallucinated building
+                    
+                    const matchedRecipe = recipesForBldg.find(r => r.name === node.recipeName);
+                    if (!matchedRecipe) return; // Hallucinated recipe
 
-            // Step 1: Create Cards
-            planData.nodes.forEach(node => {
-                const recipesForBldg = state.recipeData.recipes[node.building];
-                if (!recipesForBldg) return; // Hallucinated building
-                
-                const matchedRecipe = recipesForBldg.find(r => r.name === node.recipeName);
-                if (!matchedRecipe) return; // Hallucinated recipe
+                    const cardConfig = {
+                        buildings: node.buildingsCount || 1,
+                        powerShard: node.clockSpeed || 100,
+                        somersloops: 0,
+                        isFueled: false
+                    };
 
-                const cardConfig = {
-                    buildings: node.buildingsCount || 1,
-                    powerShard: node.clockSpeed || 100,
-                    somersloops: 0,
-                    isFueled: false
-                };
+                    const card = createCard(
+                        node.building, 
+                        matchedRecipe, 
+                        node.x !== undefined ? node.x : startX + (cardsAdded * 500), 
+                        node.y !== undefined ? node.y : startY + (cardsAdded * 100), 
+                        null, 
+                        cardConfig
+                    );
+                    
+                    idMap.set(node.id, card.id);
+                    state.selectedCardIds.add(card.id);
+                    cardsAdded++;
+                });
+            }
 
-                const card = createCard(
-                    node.building, 
-                    matchedRecipe, 
-                    startX + node.x, 
-                    startY + node.y, 
-                    null, 
-                    cardConfig
-                );
-                
-                idMap.set(node.id, card.id);
-                state.selectedCardIds.add(card.id);
-                cardsAdded++;
-            });
-
-            // Step 2: Create Connections
-            planData.edges.forEach(edge => {
-                const fId = idMap.get(edge.fromId);
-                const tId = idMap.get(edge.toId);
-                if (fId && tId) {
-                    const connId = `conn-${state.nextConnectionId++}`;
-                    state.connections.set(connId, {
-                        from: { cardId: fId, itemName: edge.itemName },
-                        to: { cardId: tId, itemName: edge.itemName }
-                    });
-                    state.selectedConnectionIds.add(connId);
-                }
-            });
+            // 5. Add New Connections
+            if (planData.addEdges) {
+                planData.addEdges.forEach(edge => {
+                    const fId = idMap.get(edge.fromId) || edge.fromId; // Fallback to existing id
+                    const tId = idMap.get(edge.toId) || edge.toId;
+                    if (fId && tId && state.placedCards.has(fId) && state.placedCards.has(tId)) {
+                        const connId = `conn-${state.nextConnectionId++}`;
+                        state.connections.set(connId, {
+                            from: { cardId: fId, itemName: edge.itemName },
+                            to: { cardId: tId, itemName: edge.itemName }
+                        });
+                        state.selectedConnectionIds.add(connId);
+                    }
+                });
+            }
 
             // Trigger updates
             updateAllCalculations();
             renderHighlights();
             renderConnections();
 
-            // --- THE FIX ---
-            // AI models are notoriously bad at recursive ratio math and coordinates. 
-            // To guarantee a perfect factory, we run the app's native auto-balance 
-            // and auto-arrange algorithms directly over the AI's generated blueprint!
+            // Run the app's native auto-balance and auto-arrange algorithms over 
+            // the AI's generated blueprint.
             const processedSets = new Set();
             state.selectedCardIds.forEach(id => {
                 if (!processedSets.has(id)) {
@@ -717,6 +862,7 @@ Constraints:
                         chain.forEach(cid => processedSets.add(cid));
                         
                         // Recalculate exact machine counts/clocks based on the final target
+                        // The native autoBalanceChain will automatically respect state.config.modules!
                         autoBalanceChain(c, state.config); 
                         // Clean up the messy AI layout
                         groupedArrangeLayout(c); 
@@ -724,7 +870,7 @@ Constraints:
                 }
             });
 
-            showToast(`AI generated ${cardsAdded} buildings!`);
+            showToast(`AI Plan Executed. ${planData.blueprintModules ? 'Updated Blueprint Modules. ' : ''}`);
             console.log(`AI Strategy: ${planData.summary}`);
         }
 
@@ -837,6 +983,41 @@ Constraints:
             });
         });
 
+        function populateModules() {
+            dom.cfgModulesList.innerHTML = '';
+            
+            // Only grab valid production buildings
+            const bldgs = Array.from(state.buildingsMap.values())
+                .filter(b => b.name !== 'Special' && b.category !== 'Extraction' && b.category !== 'Power')
+                .sort((a, b) => a.name.localeCompare(b.name));
+
+            bldgs.forEach(b => {
+                const val = state.config.modules[b.name] || '';
+                const row = document.createElement('div');
+                row.className = 'flex justify-between items-center bg-gray-800 p-1.5 rounded border border-gray-700 transition-colors focus-within:border-indigo-500';
+                
+                row.innerHTML = `
+                    <span class="text-[11px] text-gray-300 truncate pr-2" title="${b.name}">${b.name}</span>
+                    <input type="number" class="w-12 bg-gray-900 text-white text-[11px] text-center rounded border border-gray-600 focus:border-indigo-500 outline-none p-0.5" placeholder="1" min="1" value="${val}" data-bldg="${b.name}">
+                `;
+                
+                const input = row.querySelector('input');
+                input.addEventListener('change', (e) => {
+                    const v = parseInt(e.target.value);
+                    if (!isNaN(v) && v > 0) {
+                        state.config.modules[b.name] = v;
+                    } else {
+                        delete state.config.modules[b.name];
+                        e.target.value = '';
+                    }
+                    savePreferences();
+                    updateAllCalculations(); // Recalculate auto-balancer scales
+                });
+                
+                dom.cfgModulesList.appendChild(row);
+            });
+        }
+
         function populateConfig() {
             dom.altRecipeList.innerHTML = '';
             Object.entries(state.recipeData.recipes).forEach(([bName, recipes]) => {
@@ -848,6 +1029,7 @@ Constraints:
                         lbl.innerHTML = `<input type="checkbox" value="${key}" class="rounded bg-gray-800 border-gray-600 text-indigo-500" ${state.unlockedRecipes.has(key) ? 'checked' : ''}> <span class="truncate">${r.name}</span>`;
                         lbl.querySelector('input').addEventListener('change', e => {
                             if(e.target.checked) state.unlockedRecipes.add(key); else state.unlockedRecipes.delete(key);
+                            savePreferences();
                         });
                         dom.altRecipeList.appendChild(lbl);
                     }
@@ -861,11 +1043,24 @@ Constraints:
         document.getElementById('btn-toggle-left').onclick = () => dom.leftSidebar.classList.toggle('closed-left');
         document.getElementById('btn-toggle-right').onclick = () => dom.rightSidebar.classList.toggle('closed-right');
         document.getElementById('btn-close-right').onclick = () => dom.rightSidebar.classList.add('closed-right');
-        document.getElementById('btn-alts-all').onclick = () => { dom.altRecipeList.querySelectorAll('input').forEach(i => {i.checked=true; state.unlockedRecipes.add(i.value);}); };
-        document.getElementById('btn-alts-none').onclick = () => { dom.altRecipeList.querySelectorAll('input').forEach(i => {i.checked=false; state.unlockedRecipes.delete(i.value);}); };
+        
+        document.getElementById('btn-alts-all').onclick = () => { 
+            dom.altRecipeList.querySelectorAll('input').forEach(i => {i.checked=true; state.unlockedRecipes.add(i.value);}); 
+            savePreferences();
+        };
+        document.getElementById('btn-alts-none').onclick = () => { 
+            dom.altRecipeList.querySelectorAll('input').forEach(i => {i.checked=false; state.unlockedRecipes.delete(i.value);}); 
+            savePreferences();
+        };
 
-        document.getElementById('cfg-build-strat').onchange = e => state.config.buildStrategy = e.target.value;
-        document.getElementById('cfg-use-sam').onchange = e => state.config.useSAM = e.target.checked;
+        document.getElementById('cfg-build-strat').onchange = e => {
+            state.config.buildStrategy = e.target.value;
+            savePreferences();
+        };
+        document.getElementById('cfg-use-sam').onchange = e => {
+            state.config.useSAM = e.target.checked;
+            savePreferences();
+        };
 
         const savedApiKey = localStorage.getItem('satisfactory_planner_apikey');
         if (savedApiKey) {
@@ -2144,6 +2339,9 @@ Constraints:
                             }
                         }
 
+                        // Module Size fetching for Native Auto-build scaling
+                        const modSize = state.config.modules?.[bestBldg] || 1;
+
                         if (targetExistingCard) {
                             // Scale up existing card
                             const currentTargetOut = targetExistingCard.outputs[item] || 0;
@@ -2152,11 +2350,16 @@ Constraints:
                             const sMult = SOMERSLOOP_SLOTS[targetExistingCard.building] > 0 ? (1 + (targetExistingCard.somersloops / SOMERSLOOP_SLOTS[targetExistingCard.building])) : 1;
                             const effectiveBRate = bRate * sMult;
                             
-                            let nb = Math.ceil(newTotalOut / effectiveBRate);
+                            // Re-calculate using module size rounding
+                            let targetClock = 100;
+                            let baseNb = Math.ceil(newTotalOut / effectiveBRate);
+                            let nb = Math.ceil(baseNb / modSize) * modSize;
                             let nc = (newTotalOut / (effectiveBRate * nb)) * 100;
                             
                             if (nc > 250) {
-                                nb = Math.ceil(newTotalOut / (effectiveBRate * 2.5));
+                                targetClock = 250;
+                                baseNb = Math.ceil(newTotalOut / (effectiveBRate * 2.5));
+                                nb = Math.ceil(baseNb / modSize) * modSize;
                                 nc = (newTotalOut / (effectiveBRate * nb)) * 100;
                             }
                             
@@ -2188,12 +2391,14 @@ Constraints:
                                 }
                             });
                         } else {
-                            // No existing card found, spawn a new one
-                            let nb = Math.ceil(tReq / bRate);
+                            // No existing card found, spawn a new one rounding up to module size
+                            let baseNb = Math.ceil(tReq / bRate);
+                            let nb = Math.ceil(baseNb / modSize) * modSize;
                             let nc = (tReq / (bRate * nb)) * 100;
                             
                             if (nc > 250) {
-                                nb = Math.ceil(tReq / (bRate * 2.5));
+                                baseNb = Math.ceil(tReq / (bRate * 2.5));
+                                nb = Math.ceil(baseNb / modSize) * modSize;
                                 nc = (tReq / (bRate * nb)) * 100;
                             }
 
@@ -2201,8 +2406,8 @@ Constraints:
                             const ny = tCard.y + (offsetY * 400); offsetY++;
                             
                             const newC = createCard(bestBldg, bestRec, nx, ny, null, {
-                                buildings: nb, 
-                                powerShard: Math.min(250,Math.max(0.1,nc)),
+                                buildings: Math.max(1, nb), 
+                                powerShard: Math.min(250, Math.max(0.1, nc)),
                                 syncId: tCard.syncId, 
                                 syncColor: tCard.syncColor
                             });
@@ -2295,13 +2500,27 @@ Constraints:
                 
                 if(maxReqClk>0) {
                     const isExt = state.buildingsMap.get(c.building)?.category === 'Extraction';
-                    let nb = c.buildings, nc = maxReqClk/nb;
-                    if(config.balanceStrategy === 'shardsFirst' && !isExt) { nb = Math.ceil(maxReqClk/250); nc = maxReqClk/nb; }
-                    else if(nc > 100 && !isExt) { nb = Math.ceil(maxReqClk/100); nc = maxReqClk/nb; }
-                    if(isExt) { nb = Math.ceil(maxReqClk/100); nc = 100; }
+                    const modSize = state.config.modules?.[c.building] || 1;
+                    
+                    let nb = c.buildings;
+                    let nc = maxReqClk/nb;
+                    
+                    if (!isExt) {
+                        let targetClock = config.balanceStrategy === 'shardsFirst' ? 250 : 100;
+                        let baseNb = Math.ceil(maxReqClk / targetClock);
+                        nb = Math.ceil(baseNb / modSize) * modSize;
+                        nc = maxReqClk / nb;
+                    } else {
+                        let baseNb = Math.ceil(maxReqClk / 100);
+                        nb = Math.ceil(baseNb / modSize) * modSize;
+                        nc = maxReqClk / nb;
+                    }
+                    
                     nc = Math.min(250, Math.max(0.1, nc));
                     
-                    c.buildings = nb; c.powerShard = nc; c.powerShards = nc>200?3:nc>150?2:nc>100?1:0;
+                    c.buildings = Math.max(1, nb); 
+                    c.powerShard = nc;
+                    
                     const mult = (nc/100) * (SOMERSLOOP_SLOTS[c.building]>0 ? (1+c.somersloops/SOMERSLOOP_SLOTS[c.building]) : 1);
                     for(const i in c.recipe.inputs) c.inputs[i] = c.recipe.inputs[i]* (nc/100) * nb;
                     for(const o in c.recipe.outputs) c.outputs[o] = c.recipe.outputs[o] * mult * nb;
@@ -2310,7 +2529,7 @@ Constraints:
 
             temp.forEach((v,k) => {
                 const act = state.placedCards.get(k);
-                if(act && !act.isLocked) { act.buildings=v.buildings; act.powerShard=v.powerShard; act.powerShards=v.powerShards; }
+                if(act && !act.isLocked) { act.buildings=v.buildings; act.powerShard=v.powerShard; }
                 if(act && !act.isLocked) {
                     const bIn = act.element.querySelector('.inline-input:nth-child(2)'); if(bIn) bIn.value = v.buildings;
                     const cIn = act.element.querySelectorAll('.inline-input')[1]; if(cIn) cIn.value = Number.isInteger(v.powerShard) ? v.powerShard : v.powerShard.toFixed(4);
