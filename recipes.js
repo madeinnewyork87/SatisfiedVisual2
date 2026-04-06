@@ -121,7 +121,8 @@ export const recipeData = {
       {name: 'Steel Rotor', inputs: {'Steel Pipe': 10, 'Wire': 30}, outputs: {'Rotor': 5}, isAlternate: true},
       {name: 'Caterium Circuit Board', inputs: {'Plastic': 12.5, 'Quickwire': 37.5}, outputs: {'Circuit Board': 8.75}, isAlternate: true},
       {name: 'Coated Iron Plate', inputs: {'Iron Ingot': 50, 'Plastic': 10}, outputs: {'Iron Plate': 75}, isAlternate: true},
-      {name: 'Encased Industrial Pipe', inputs: {'Steel Pipe': 28, 'Concrete': 20}, outputs: {'Encased Industrial Beam': 4}, isAlternate: true}
+      {name: 'Encased Industrial Pipe', inputs: {'Steel Pipe': 28, 'Concrete': 20}, outputs: {'Encased Industrial Beam': 4}, isAlternate: true},
+      {name: 'OC Supercomputer', inputs: {'Radio Control Unit': 6, 'Cooling System': 6}, outputs: {'Supercomputer': 3}, isAlternate: true}
     ],
     'Manufacturer': [
       {name: 'Adaptive Control Unit', inputs: {'Automated Wiring': 5, 'Circuit Board': 5, 'Heavy Modular Frame': 1, 'Computer': 2}, outputs: {'Adaptive Control Unit': 1}},
